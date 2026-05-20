@@ -1,0 +1,5 @@
+# Üretim kök URL’yi canonical ile eşleştirin (VITE_PUBLIC_SITE_URL). Yerelde tarayıcı kökü kullanılır.
+User-agent: *
+Allow: /
+
+Sitemap: https://ilsasupport.com/sitemap.xml

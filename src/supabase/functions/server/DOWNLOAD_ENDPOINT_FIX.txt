@@ -1,0 +1,45 @@
+DOWNLOAD ENDPOINT FIX - GOOGLE DRIVE TÜM DOSYA TİPLERİ İÇİN
+================================================================
+
+SATIR 1618-1690 ARASI DEĞİŞTİRİLECEK:
+
+ÖNCESİ (Satır 1618-1690):
+        console.log(`📥 Google Drive indirme başlatılıyor: ${driveFileId}`);
+        
+        // 🎯 ÖNCELİK SIRASI:
+        // 1. Direct download link (API key gerektirmez, public dosyalar için çalışır)
+        // 2. Google Drive API (eğer API key düzgün yapılandırılmışsa)
+        
+        try {
+          // ... (long code)
+        }
+
+SONRASI (Yeni kod):
+        console.log(`📥 Google Drive indirme başlatılıyor: ${driveFileId}`);
+        console.log(`📄 Dosya adı: ${downloadData.fileName}`);
+        
+        try {
+          // 🎯 Proxy fonksiyonunu kullan (tüm dosya tipleri için optimize edilmiş)
+          const response = await proxyGoogleDriveDownload(
+            driveFileId,
+            downloadData.fileName,
+            apiKey,
+            c.req.raw.headers
+          );
+          
+          console.log(`✅ Download proxy başarılı: ${downloadData.fileName}`);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          
+          return response;
+          
+        } catch (error) {
+          console.error('❌ Google Drive indirme hatası:', error);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          return c.json({ error: 'Dosya indirme başarısız', details: error.message }, 500);
+        }
+
+DEĞİŞİKLİK ÖZETİ:
+- Uzun method 1 ve method 2 kodları kaldırıldı
+- Bunun yerine proxyGoogleDriveDownload() fonksiyonu kullanılıyor
+- Bu fonksiyon download_proxy.tsx'de tanımlı ve tüm dosya tipleri için Content-Type detect ediyor
+- Daha temiz ve bakımı kolay kod

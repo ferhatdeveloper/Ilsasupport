@@ -1,0 +1,23 @@
+# Self-hosted runner kurulu sunucuda push sonrası otomatik deploy.
+# GitHub → Settings → Actions → Runners → New self-hosted runner (Windows)
+name: Deploy ILSA Support
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        shell: pwsh
+        run: |
+          $env:ILSA_DEPLOY_SKIP_FETCH = '1'
+          if (Test-Path C:\ilsasupport\scripts\deploy-from-git.ps1) {
+            & C:\ilsasupport\scripts\deploy-from-git.ps1 -RepoRoot $env:GITHUB_WORKSPACE
+          } else {
+            npm ci
+            npm run build
+          }

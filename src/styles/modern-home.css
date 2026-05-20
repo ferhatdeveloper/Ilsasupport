@@ -1,0 +1,884 @@
+.ilsa-modern-page {
+  min-height: 100vh;
+  background: var(--ilsa-home-bg);
+  color: var(--ilsa-home-text);
+  font-family: "Noto Sans", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+:root.dark {
+  --ilsa-home-bg: #050914;
+  --ilsa-home-text: #eef2ff;
+  --ilsa-nav-bg: linear-gradient(180deg, #091526, #081120);
+  --ilsa-nav-border: rgba(255, 255, 255, 0.06);
+  --ilsa-nav-text: #c7d1e7;
+  --ilsa-surface-bg: #101d32;
+  --ilsa-surface-border: rgba(255, 255, 255, 0.16);
+  --ilsa-text-strong: #f3f6ff;
+  --ilsa-text-muted: #b4bfd6;
+}
+
+:root.light {
+  --ilsa-home-bg: #f3f6fb;
+  --ilsa-home-text: #111827;
+  --ilsa-nav-bg: linear-gradient(180deg, #ffffff, #f3f6fb);
+  --ilsa-nav-border: #dbe3f0;
+  --ilsa-nav-text: #1f2937;
+  --ilsa-surface-bg: #ffffff;
+  --ilsa-surface-border: #d5deea;
+  --ilsa-text-strong: #111827;
+  --ilsa-text-muted: #5d6880;
+  --ilsa-shell-bg:
+    radial-gradient(circle at 84% -12%, rgba(255, 60, 71, 0.08), transparent 34%),
+    radial-gradient(circle at -10% -8%, rgba(22, 67, 162, 0.1), transparent 38%),
+    #f3f6fb;
+}
+
+.ilsa-modern-shell {
+  width: min(100%, 1860px);
+  max-width: none;
+  margin: 0 auto;
+  padding: 12px 10px 18px;
+  background: var(--ilsa-shell-bg,
+    radial-gradient(circle at 84% -12%, rgba(255, 60, 71, 0.26), transparent 34%),
+    radial-gradient(circle at -10% -8%, rgba(22, 67, 162, 0.35), transparent 38%),
+    #050914);
+}
+
+/* Global CSS etkisini kırmak için sadece modern üst blokta reset uygula */
+.ilsa-modern-frame,
+.ilsa-modern-frame * {
+  box-sizing: border-box;
+  font-family: "Noto Sans", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.ilsa-modern-frame h1,
+.ilsa-modern-frame h2,
+.ilsa-modern-frame h3,
+.ilsa-modern-frame h4,
+.ilsa-modern-frame p {
+  margin: 0;
+  padding: 0;
+}
+
+.ilsa-modern-frame button,
+.ilsa-modern-frame input,
+.ilsa-modern-frame select {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  opacity: 1;
+  border-radius: 0;
+}
+
+.ilsa-modern-frame img {
+  display: block;
+  max-width: 100%;
+}
+
+.ilsa-modern-frame select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.ilsa-modern-navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  border-radius: 0 !important;
+  background: var(--ilsa-nav-bg);
+  border: 1px solid var(--ilsa-nav-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.ilsa-modern-logo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1;
+}
+
+.ilsa-modern-logo-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.ilsa-modern-logo.ilsa-modern-logo-btn {
+  flex-direction: row;
+  min-width: 0;
+}
+
+.ilsa-modern-logo-mark {
+  height: clamp(48px, 5.5vw, 72px);
+  width: auto;
+  max-width: min(360px, 52vw);
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.15));
+}
+
+:root.dark .ilsa-modern-logo-mark {
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.55));
+}
+
+.ilsa-modern-logo-main {
+  color: #f8fbff;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.ilsa-modern-logo-sub {
+  margin-top: 2px;
+  color: #ff3b45;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 5px;
+}
+
+.ilsa-modern-menu {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ilsa-modern-menu button {
+  color: var(--ilsa-nav-text);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(8, 18, 34, 0.65);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: none;
+  cursor: pointer;
+  padding: 8px 13px;
+  border-radius: 0;
+  transition: color 0.2s ease, transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.ilsa-modern-menu button:hover {
+  color: #ffffff;
+  transform: translateY(-0.5px);
+  background: rgba(12, 25, 46, 0.95);
+  border-color: rgba(255, 75, 85, 0.55);
+}
+
+:root.light .ilsa-modern-menu button {
+  color: #1f2937;
+  background: #ffffff;
+  border-color: #d1d9e6;
+}
+
+:root.light .ilsa-modern-menu button:hover {
+  color: #d21d33;
+  background: #fff5f6;
+  border-color: #f07788;
+}
+
+.ilsa-modern-nav-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ilsa-modern-top-search {
+  height: 38px;
+  min-width: 220px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 18, 34, 0.88);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #7f8aa0;
+}
+
+.ilsa-modern-top-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e4ecff;
+  font-size: 13px;
+}
+
+.ilsa-membership-remaining {
+  font-size: 0.78em;
+  font-weight: 500;
+  opacity: 0.88;
+  white-space: nowrap;
+}
+
+.ilsa-profile-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: min(280px, 42vw);
+}
+
+.ilsa-membership-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.3;
+  color: #fff;
+  background: linear-gradient(180deg, #ff4455 0%, #ed2235 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 6px rgba(237, 34, 53, 0.35);
+}
+
+:root.light .ilsa-membership-badge {
+  color: #fff;
+  border-color: rgba(237, 34, 53, 0.45);
+}
+
+.ilsa-modern-icon-btn,
+.ilsa-modern-profile-btn,
+.ilsa-modern-logout-btn {
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 18, 34, 0.9);
+  color: #d3dbef;
+  border-radius: 11px;
+  font-size: 12px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.ilsa-modern-icon-btn {
+  width: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ilsa-modern-icon-btn svg {
+  display: block;
+}
+
+.ilsa-modern-theme-btn {
+  background: linear-gradient(180deg, #13233d 0%, #0c182b 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f3f7ff;
+}
+
+.ilsa-modern-theme-btn:hover {
+  background: linear-gradient(180deg, #1a2e4c 0%, #13243d 100%);
+}
+
+.ilsa-modern-admin-btn {
+  height: 38px;
+  border: none;
+  border-radius: 11px;
+  padding: 0 14px;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(180deg, #ff4455 0%, #ed2235 100%);
+  cursor: pointer;
+}
+
+.ilsa-modern-hero {
+  margin-top: 12px;
+  height: 200px;
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    linear-gradient(103deg, rgba(3, 9, 18, 0.94) 12%, rgba(4, 10, 21, 0.58) 48%, rgba(3, 8, 15, 0.9) 100%),
+    url("https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?q=80&w=1600&auto=format&fit=crop");
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+}
+
+/* Ana sayfa slayt şeridi: metin/gradient yok, yalnızca görsel (+ isteğe bağlı noktalar) */
+.ilsa-modern-hero--bare {
+  background: none;
+}
+
+.ilsa-modern-hero-overlay--bare {
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 16px 20px;
+}
+
+.ilsa-modern-overlay {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 32px;
+}
+
+.ilsa-modern-hero-left {
+  max-width: 510px;
+}
+
+.ilsa-modern-badge {
+  color: #ff515b;
+  font-size: 11px;
+}
+
+.ilsa-modern-hero h1 {
+  font-size: 34px;
+  margin-top: 4px;
+  line-height: 1.15;
+}
+
+.ilsa-modern-hero p {
+  margin-top: 8px;
+  color: #d9deea;
+  line-height: 1.45;
+  font-size: 14px;
+  max-width: 440px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ilsa-modern-hero-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.ilsa-modern-hero .ilsa-modern-primary,
+.ilsa-modern-hero .ilsa-modern-secondary {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 11px;
+}
+
+.ilsa-modern-hero-dots {
+  align-self: flex-end;
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ilsa-modern-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.33);
+}
+
+.ilsa-modern-active-dot {
+  width: 22px;
+  border-radius: 999px;
+  background: #ff3f4e;
+}
+
+.ilsa-modern-primary,
+.ilsa-modern-secondary,
+.ilsa-modern-search-btn,
+.ilsa-modern-view-all {
+  border: none;
+  cursor: pointer;
+}
+
+.ilsa-modern-primary {
+  background: linear-gradient(180deg, #ff4457 0%, #e92234 100%);
+  color: #fff;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 11px;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ilsa-modern-secondary {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 11px;
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Kategori sayfasi geri don butonu — kirmizi tonlar */
+.ilsa-modern-page .ilsa-back-btn {
+  border: 1px solid rgba(248, 113, 113, 0.55) !important;
+  background: rgba(254, 226, 226, 0.92) !important;
+  color: rgb(185, 28, 28) !important;
+}
+
+.ilsa-modern-page .ilsa-back-btn:hover {
+  background: rgba(254, 202, 202, 0.95) !important;
+  border-color: rgba(239, 68, 68, 0.75) !important;
+}
+
+.ilsa-modern-page.dark .ilsa-back-btn,
+html.dark .ilsa-modern-page .ilsa-back-btn {
+  border-color: rgba(248, 113, 113, 0.35) !important;
+  background: rgba(127, 29, 29, 0.35) !important;
+  color: rgb(254, 202, 202) !important;
+}
+
+.ilsa-modern-page.dark .ilsa-back-btn:hover,
+html.dark .ilsa-modern-page .ilsa-back-btn:hover {
+  background: rgba(153, 27, 27, 0.45) !important;
+}
+
+.ilsa-modern-search-area {
+  margin-top: 16px;
+}
+
+.ilsa-modern-search-wrap {
+  padding: 12px;
+  border-radius: 16px;
+  background: #081425;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.ilsa-modern-big-search {
+  flex: 1.2;
+  height: 54px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 10px;
+  color: #8a95ab;
+}
+
+.ilsa-modern-big-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e6edff;
+  font-size: 14px;
+}
+
+.ilsa-modern-filters {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+}
+
+.ilsa-modern-filters select {
+  flex: 1;
+  min-width: 145px;
+  height: 54px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e9efff;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 0 14px;
+  border-radius: 12px;
+  outline: none;
+  border-radius: 12px !important;
+}
+
+.ilsa-modern-search-btn {
+  min-width: 120px;
+  height: 54px;
+  background: linear-gradient(180deg, #ff4758 0%, #e92035 100%);
+  color: #fff;
+  border-radius: 12px;
+  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ilsa-modern-brands-section {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 16px;
+  background: #071222;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ilsa-modern-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 10px;
+}
+
+.ilsa-modern-section-header h2 {
+  font-size: 30px;
+}
+
+.ilsa-modern-section-header p {
+  color: #9da9c3;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.ilsa-modern-view-all {
+  background: #101d33;
+  color: #fff;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 11px;
+  text-transform: uppercase;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ilsa-modern-header-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 560px;
+}
+
+.ilsa-modern-header-search {
+  flex: 1;
+  height: 54px;
+  padding: 0 16px;
+  border-radius: 0;
+  border: 1px solid #ff4758;
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8a95ab;
+}
+
+.ilsa-modern-header-search > span {
+  font-size: 22px;
+  line-height: 1;
+  color: #ff4758;
+}
+
+.ilsa-modern-header-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e6edff;
+  font-size: 14px;
+}
+
+.ilsa-modern-header-search input::placeholder {
+  color: #ff4758;
+  opacity: 1;
+}
+
+.ilsa-modern-header-search-btn {
+  height: 54px;
+  min-width: 120px;
+  border: none;
+  border-radius: 0;
+  background: linear-gradient(180deg, #ff4758 0%, #e92035 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ilsa-modern-brand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 14px;
+}
+
+.ilsa-modern-brand-card {
+  background: linear-gradient(180deg, #101d32, #0b1628);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 22px 14px;
+  text-align: center;
+  color: #f2f6ff;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.ilsa-modern-brand-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 74, 94, 0.72);
+  background: linear-gradient(180deg, #13243f, #0f1d33);
+  box-shadow:
+    0 0 0 2px rgba(255, 66, 88, 0.28),
+    0 16px 32px rgba(0, 0, 0, 0.36);
+}
+
+.ilsa-modern-brand-card:focus-visible {
+  outline: 2px solid #ff4a5e;
+  outline-offset: 2px;
+}
+
+.ilsa-modern-brand-logo {
+  width: 78px;
+  height: 78px;
+  margin: auto;
+  border-radius: 14px;
+  background: #0b1221;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ilsa-modern-brand-logo-img {
+  width: 78px;
+  height: 78px;
+  margin: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  padding: 5px;
+}
+
+.ilsa-modern-brand-card h3 {
+  margin-top: 14px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Light mode: koyuya sabitlenmiş tüm ana blokları açık temaya çek */
+:root.light .ilsa-modern-navbar {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+:root.light .ilsa-modern-logo-main {
+  color: #111827;
+}
+
+:root.light .ilsa-modern-top-search {
+  background: #ffffff;
+  color: #6b7280;
+  border-color: #d5deea;
+}
+
+:root.light .ilsa-modern-top-search input {
+  color: #111827;
+}
+
+:root.light .ilsa-modern-icon-btn,
+:root.light .ilsa-modern-profile-btn,
+:root.light .ilsa-modern-logout-btn {
+  background: #ffffff;
+  color: #1f2937;
+  border-color: #d5deea;
+}
+
+:root.light .ilsa-modern-theme-btn {
+  background: #ffffff;
+  color: #1f2937;
+  border-color: #d5deea;
+}
+
+:root.light .ilsa-modern-theme-btn:hover {
+  background: #f8fafc;
+}
+
+:root.light .ilsa-modern-hero {
+  border-color: #d5deea;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+}
+
+:root.light .ilsa-modern-brands-section {
+  background: #ffffff;
+  border-color: #d5deea;
+}
+
+:root.light .ilsa-modern-section-header p {
+  color: #5d6880;
+}
+
+:root.light .ilsa-modern-header-search {
+  background: #ffffff;
+  border-color: #ff4758;
+  color: #ff4758;
+}
+
+:root.light .ilsa-modern-header-search input {
+  color: #111827;
+}
+
+:root.light .ilsa-modern-brand-card {
+  background: #ffffff;
+  border-color: #d5deea;
+  color: #111827;
+}
+
+:root.light .ilsa-modern-brand-card:hover {
+  background: #fff7f8;
+  border-color: rgba(255, 74, 94, 0.52);
+  box-shadow: 0 0 0 2px rgba(255, 66, 88, 0.2), 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+:root.light .ilsa-modern-brand-logo {
+  background: #f8fafc;
+  border-color: #d5deea;
+  color: #111827;
+}
+
+:root.light .ilsa-modern-feature-card {
+  background: #ffffff;
+  border-color: #d5deea;
+}
+
+:root.light .ilsa-modern-feature-card p {
+  color: #5d6880;
+}
+
+.ilsa-modern-features {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.ilsa-modern-feature-card {
+  background: linear-gradient(180deg, #0e1a2d, #0a1424);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.ilsa-modern-feature-card h4 {
+  font-size: 18px;
+}
+
+.ilsa-modern-feature-card p {
+  color: #b4bfd6;
+  margin-top: 8px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.ilsa-modern-main-content {
+  margin-top: 20px;
+  padding: 0 2px;
+}
+
+.ilsa-title {
+  color: var(--ilsa-text-strong) !important;
+}
+
+.ilsa-muted {
+  color: var(--ilsa-text-muted) !important;
+}
+
+/* Sadece home/kategori akisi icin cakismasiz metin siniflari */
+.ilsa-home-title {
+  color: var(--ilsa-text-strong) !important;
+}
+
+.ilsa-home-muted {
+  color: var(--ilsa-text-muted) !important;
+}
+
+@media (max-width: 1200px) {
+  .ilsa-modern-navbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 980px) {
+  .ilsa-modern-hero {
+    min-height: 168px;
+    height: auto;
+  }
+
+  .ilsa-modern-hero .ilsa-modern-overlay {
+    padding: 16px 20px;
+  }
+
+  .ilsa-modern-hero h1 {
+    font-size: 26px;
+  }
+
+  .ilsa-modern-hero p {
+    font-size: 13px;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  .ilsa-modern-hero-dots {
+    display: none;
+  }
+
+  .ilsa-modern-hero--bare .ilsa-modern-hero-dots {
+    display: flex;
+  }
+
+  .ilsa-modern-search-wrap,
+  .ilsa-modern-filters {
+    flex-direction: column;
+  }
+
+  .ilsa-modern-header-search-wrap {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* Home içindeki eski Tailwind sınıfları tema bazli gorunsun */
+:root.dark .ilsa-modern-page .text-gray-900 {
+  color: #f3f6ff !important;
+}
+
+:root.dark .ilsa-modern-page .text-gray-700,
+:root.dark .ilsa-modern-page .text-gray-600,
+:root.dark .ilsa-modern-page .text-gray-500 {
+  color: #b4bfd6 !important;
+}
+
+:root.dark .ilsa-modern-page .bg-white {
+  background-color: #101d32 !important;
+}
+
+:root.dark .ilsa-modern-page .border-gray-200 {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+:root.light .ilsa-modern-page .text-gray-900 {
+  color: #111827 !important;
+}
+
+:root.light .ilsa-modern-page .text-gray-700,
+:root.light .ilsa-modern-page .text-gray-600,
+:root.light .ilsa-modern-page .text-gray-500 {
+  color: #5d6880 !important;
+}
+
+:root.light .ilsa-modern-page .bg-white {
+  background-color: var(--ilsa-surface-bg) !important;
+}
+
+:root.light .ilsa-modern-page .border-gray-200 {
+  border-color: var(--ilsa-surface-border) !important;
+}

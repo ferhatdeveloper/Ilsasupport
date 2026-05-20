@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>ILSA Support — Giriş</title>
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <main class="card">
+    <header class="brand">
+      <img
+        class="brand-logo"
+        src="assets/logo.png"
+        alt="ILSA Support"
+        width="280"
+        height="88"
+        decoding="async"
+      />
+      <p class="brand-title">ILSA Support</p>
+      <p class="sub">Masaüstü giriş — hesap bu bilgisayara bağlanır</p>
+    </header>
+
+    <section id="update-banner" class="update-banner" hidden>
+      <p class="update-banner-title">Yeni sürüm mevcut</p>
+      <p class="update-banner-text" id="update-banner-text"></p>
+      <div class="update-banner-actions">
+        <button type="button" class="btn primary" id="btn-update-download">Güncellemeyi indir</button>
+        <button type="button" class="btn secondary" id="btn-update-later">Sonra</button>
+      </div>
+      <p class="update-progress" id="update-progress" hidden></p>
+    </section>
+
+    <div id="error" class="msg error" hidden></div>
+    <div id="success" class="msg ok" hidden></div>
+
+    <div class="tabs">
+      <button type="button" id="tab-signin" class="tab active">Giriş</button>
+      <button type="button" id="tab-signup" class="tab">Kayıt</button>
+    </div>
+
+    <form id="form-signin">
+      <label for="signin-user">Kullanıcı adı</label>
+      <input id="signin-user" autocomplete="username" required minlength="3" maxlength="32" pattern="[a-z0-9_]+" placeholder="ornek_kullanici" />
+      <label for="signin-pass">Şifre</label>
+      <input id="signin-pass" type="password" autocomplete="current-password" required />
+      <button type="submit" class="btn primary" id="btn-signin">Giriş yap</button>
+    </form>
+
+    <section id="continue-choice" class="continue-choice" hidden>
+      <p class="continue-title">Giriş başarılı</p>
+      <p class="continue-sub" id="continue-user-line">Nasıl devam etmek istersiniz?</p>
+      <div class="continue-actions">
+        <button type="button" class="btn primary" id="btn-continue-browser">Tarayıcıdan devam et</button>
+      </div>
+      <p class="continue-hint">
+        Site varsayılan tarayıcınızda açılır; giriş otomatik tamamlanır (2 dk). İndirme tarayıcıdan yapılır.
+      </p>
+    </section>
+
+    <form id="form-signup" hidden>
+      <label for="signup-name">Ad soyad</label>
+      <input id="signup-name" required />
+      <label for="signup-user">Kullanıcı adı</label>
+      <input id="signup-user" required minlength="3" maxlength="32" pattern="[a-z0-9_]+" placeholder="ornek_kullanici" />
+      <label for="signup-pass">Şifre</label>
+      <input id="signup-pass" type="password" required minlength="6" />
+      <button type="submit" class="btn primary" id="btn-signup">Kayıt ol</button>
+    </form>
+
+    <p class="hw-note">Portable ilk açılışta 30–60 sn sürebilir; sonraki açılışlar daha hızlıdır.</p>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>

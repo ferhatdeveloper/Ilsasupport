@@ -1,0 +1,59 @@
+// ============================================
+// İNDİRME FİX PATCH - MANUAL
+// ============================================
+// Google Drive indirme sorununu düzelten patch
+
+// Problem: Content-Length header eksik, büyük dosyalar KB bazında indiriliyor
+// Çözüm: Response header'larını düzgün set et
+
+// Satır 1640-1646 değiştir:
+// ESKİ:
+/*
+return new Response(directResponse.body, {
+  headers: {
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename=\"${encodeURIComponent(downloadData.fileName)}\"`,
+    'Access-Control-Allow-Origin': '*',
+  },
+});
+*/
+
+// YENİ:
+/*
+const contentLength = directResponse.headers.get('Content-Length');
+const contentType = directResponse.headers.get('Content-Type');
+const headers: Record<string, string> = {
+  'Content-Type': contentType || 'application/octet-stream',
+  'Content-Disposition': `attachment; filename=\"${encodeURIComponent(downloadData.fileName)}\"`,
+  'Access-Control-Allow-Origin': '*',
+  'Accept-Ranges': 'bytes',
+};
+if (contentLength) headers['Content-Length'] = contentLength;
+return new Response(directResponse.body, { headers });
+*/
+
+// Satır 1679-1685 değiştir:
+// ESKİ:
+/*
+return new Response(apiResponse.body, {
+  headers: {
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename=\"${encodeURIComponent(downloadData.fileName)}\"`,
+    'Access-Control-Allow-Origin': '*',
+  },
+});
+*/
+
+// YENİ:
+/*
+const contentLength = apiResponse.headers.get('Content-Length');
+const contentType = apiResponse.headers.get('Content-Type');
+const headers: Record<string, string> = {
+  'Content-Type': contentType || 'application/octet-stream',
+  'Content-Disposition': `attachment; filename=\"${encodeURIComponent(downloadData.fileName)}\"`,
+  'Access-Control-Allow-Origin': '*',
+  'Accept-Ranges': 'bytes',
+};
+if (contentLength) headers['Content-Length'] = contentLength;
+return new Response(apiResponse.body, { headers });
+*/

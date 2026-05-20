@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ILSA Support - Giriş</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+      color: #ffffff;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 450px;
+      padding: 40px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .logo h1 {
+      font-size: 32px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .logo p {
+      color: #9ca3af;
+      font-size: 14px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 5px;
+      border-radius: 12px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      background: transparent;
+      border: none;
+      color: #9ca3af;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      color: white;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #d1d5db;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      color: white;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    input::placeholder {
+      color: #6b7280;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .error.show {
+      display: block;
+    }
+
+    .success {
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #86efac;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .success.show {
+      display: block;
+    }
+
+    .hardware-info {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 12px;
+      color: #93c5fd;
+    }
+
+    .hardware-info strong {
+      color: #60a5fa;
+    }
+
+    .divider {
+      margin: 30px 0;
+      text-align: center;
+      position: relative;
+    }
+
+    .divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .divider span {
+      background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+      padding: 0 15px;
+      position: relative;
+      color: #6b7280;
+      font-size: 13px;
+    }
+
+    .support-btn {
+      width: 100%;
+      padding: 14px;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 10px;
+      color: #86efac;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .support-btn:hover {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: rgba(34, 197, 94, 0.5);
+    }
+
+    .support-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <h1>ILSA Support</h1>
+      <p>Firmware & Tool Download Platform</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('signin')">Giriş Yap</button>
+      <button class="tab" onclick="switchTab('signup')">Kayıt Ol</button>
+    </div>
+
+    <!-- Giriş Yap Tab -->
+    <div id="signin-tab" class="tab-content active">
+      <div id="signin-error" class="error"></div>
+      
+      <form id="signin-form">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signin-email" placeholder="email@example.com" required>
+        </div>
+
+        <div class="form-group">
+          <label>Şifre</label>
+          <input type="password" id="signin-password" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" class="btn" id="signin-btn">
+          Giriş Yap
+        </button>
+      </form>
+
+      <div class="divider">
+        <span>veya</span>
+      </div>
+
+      <button class="support-btn" onclick="openSupport()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"></path>
+        </svg>
+        Uzaktan Destek Talebi
+      </button>
+    </div>
+
+    <!-- Kayıt Ol Tab -->
+    <div id="signup-tab" class="tab-content">
+      <div id="signup-error" class="error"></div>
+      <div id="signup-success" class="success"></div>
+      
+      <form id="signup-form">
+        <div class="form-group">
+          <label>Ad Soyad</label>
+          <input type="text" id="signup-name" placeholder="Adınız Soyadınız" required>
+        </div>
+
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signup-email" placeholder="email@example.com" required>
+        </div>
+
+        <div class="form-group">
+          <label>Şifre</label>
+          <input type="password" id="signup-password" placeholder="••••••••" required minlength="8">
+        </div>
+
+        <button type="submit" class="btn" id="signup-btn">
+          Kayıt Ol
+        </button>
+      </form>
+    </div>
+
+    <div class="hardware-info" id="hardware-info">
+      <strong>Cihaz ID:</strong> Yükleniyor...
+    </div>
+  </div>
+
+  <script src="../scripts/login.js"></script>
+</body>
+</html>

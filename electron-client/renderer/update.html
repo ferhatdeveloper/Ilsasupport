@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>ILSA Support — Güncelleme gerekli</title>
+  <link rel="stylesheet" href="login.css" />
+</head>
+<body>
+  <main class="card">
+    <header class="brand">
+      <p class="brand-title">Güncelleme gerekli</p>
+      <p class="sub" id="update-msg">Masaüstü uygulamanız artık desteklenmiyor.</p>
+    </header>
+    <div class="msg error" id="version-detail"></div>
+    <p class="update-progress" id="update-progress" hidden></p>
+    <button type="button" class="btn primary" id="btn-download">Güncellemeyi indir (İndirilenler)</button>
+    <button type="button" class="btn secondary" id="btn-download-browser">Tarayıcıda aç</button>
+    <p class="hw-note">İndirme bitince eski portable’ı kapatın; yeni dosyayı çalıştırın.</p>
+  </main>
+  <script src="update.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+      if (driveFileId) {
+        console.log(`📥 Google Drive indirme başlatılıyor: ${driveFileId}`);
+        
+        try {
+          // ✅ YENİ: Download proxy kullan (stream + range support)
+          return await proxyGoogleDriveDownload(
+            driveFileId,
+            downloadData.fileName,
+            apiKey,
+            c.req.raw.headers // Range header'ı için
+          );
+        } catch (error) {
+          console.error('❌ Google Drive indirme hatası:', error);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          return c.json({ 
+            error: 'Google Drive dosyasına erişilemiyor', 
+            details: 'Dosya public değil veya API key kısıtlaması var. Lütfen dosyayı "Anyone with the link" olarak paylaşın.',
+          }, 500);
+        }
+      }

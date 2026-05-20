@@ -1,0 +1,20 @@
+<service>
+  <id>ILSA-Support-Caddy</id>
+  <name>ILSA Support Web (Caddy)</name>
+  <description>ILSA Support — HTTPS / static site / API proxy</description>
+  <executable>C:\ilsasupport\tools\caddy\caddy.exe</executable>
+  <arguments>run --config C:\ilsasupport\deploy\Caddyfile --adapter caddyfile</arguments>
+  <workingdirectory>C:\ilsasupport</workingdirectory>
+  <env name="ILSA_ROOT" value="C:\ilsasupport" />
+  <depend>ILSA-Support-API</depend>
+  <logpath>C:\ilsasupport\deploy\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <startmode>Automatic</startmode>
+</service>

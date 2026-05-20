@@ -1,0 +1,131 @@
+.ilsa-page {
+  min-height: 100vh;
+  background: var(--ilsa-page-bg-soft), var(--ilsa-page-bg);
+  color: var(--ilsa-text-strong);
+}
+
+.ilsa-page-container {
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  padding: 18px 12px 28px;
+}
+
+.ilsa-surface {
+  background: var(--ilsa-surface-bg);
+  border: 1px solid var(--ilsa-surface-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+}
+
+.ilsa-muted {
+  color: var(--ilsa-text-muted) !important;
+}
+
+.ilsa-title {
+  color: var(--ilsa-text-strong) !important;
+}
+
+.ilsa-ghost-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5ecff;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+}
+
+.ilsa-primary-btn {
+  background: linear-gradient(180deg, #ff4758 0%, #e92035 100%);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+}
+
+/* Masaüstü portable indir — açık/koyu temada gri override olmasın */
+.ilsa-portable-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-decoration: none !important;
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.ilsa-portable-download-btn:hover {
+  background: linear-gradient(180deg, #f87171 0%, #ef4444 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.45);
+}
+
+.ilsa-portable-download-btn svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* Anasayfa ile birebir koyu uyum gereken sayfalar (En Yeniler vb.) */
+.ilsa-page-home-compat {
+  background: var(--ilsa-page-bg-soft), var(--ilsa-page-bg) !important;
+  color: var(--ilsa-text-strong) !important;
+}
+
+.ilsa-page-home-compat .ilsa-surface {
+  background: var(--ilsa-surface-bg) !important;
+  border: 1px solid var(--ilsa-surface-border) !important;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28) !important;
+}
+
+.ilsa-page-home-compat .ilsa-title {
+  color: var(--ilsa-text-strong) !important;
+}
+
+.ilsa-page-home-compat .ilsa-muted {
+  color: var(--ilsa-text-muted) !important;
+}
+
+:root.light .ilsa-page-home-compat .ilsa-surface {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* En Yeniler: tamamen keskin köşe */
+.ilsa-page-home-compat .ilsa-surface,
+.ilsa-page-home-compat .rounded-sm,
+.ilsa-page-home-compat .rounded,
+.ilsa-page-home-compat .rounded-md,
+.ilsa-page-home-compat .rounded-lg,
+.ilsa-page-home-compat .rounded-xl,
+.ilsa-page-home-compat .rounded-2xl,
+.ilsa-page-home-compat .rounded-3xl,
+.ilsa-page-home-compat .rounded-full {
+  border-radius: 0 !important;
+}
+
+/* Dark mode: fixed text-gray utility sınıfları koyu zeminde okunur kalsın */
+:root.dark .ilsa-page .text-gray-900 {
+  color: #f3f6ff !important;
+}
+
+:root.dark .ilsa-page .text-gray-700,
+:root.dark .ilsa-page .text-gray-600,
+:root.dark .ilsa-page .text-gray-500,
+:root.dark .ilsa-page .text-zinc-700,
+:root.dark .ilsa-page .text-zinc-600 {
+  color: #b6c4df !important;
+}
+
+/* Light mode: koyu tema sınıfları açık zeminde kontrast bozmasın */
+:root.light .ilsa-page .text-white,
+:root.light .ilsa-page .dark\:text-white {
+  color: #111827 !important;
+}
+
+:root.light .ilsa-page .bg-white {
+  background-color: #ffffff !important;
+}

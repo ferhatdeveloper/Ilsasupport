@@ -1,0 +1,34 @@
+# ILSA Support — üretim (Let's Encrypt otomatik)
+# DNS: A @ ve www → bu sunucu (194.62.52.140)
+
+{
+	email admin@ilsasupport.com
+}
+
+# IP ile giris: sertifika yalnizca domain icin — siteyi domaine yonlendir
+http://194.62.52.140 {
+	redir https://ilsasupport.com{uri} permanent
+}
+
+https://194.62.52.140 {
+	tls internal
+	redir https://ilsasupport.com{uri} permanent
+}
+
+ilsasupport.com, www.ilsasupport.com {
+	@www host www.ilsasupport.com
+	redir @www https://ilsasupport.com{uri} permanent
+
+	encode gzip zstd
+
+	@api path /make-server-47081311/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * {$ILSA_ROOT}/build
+		try_files {path} /index.html
+		file_server
+	}
+}

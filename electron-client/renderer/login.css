@@ -1,0 +1,273 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #000000;
+  color: #f5f5f5;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  background: #000000;
+  border: 1px solid #1a1a1a;
+  border-radius: 12px;
+  padding: 28px 24px 24px;
+}
+
+.brand {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.brand-logo {
+  display: block;
+  width: min(100%, 280px);
+  height: auto;
+  max-height: 88px;
+  margin: 0 auto 14px;
+  object-fit: contain;
+}
+
+.brand-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+}
+
+.sub {
+  font-size: 0.8rem;
+  color: #737373;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.tabs.hidden {
+  display: none;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  background: #0a0a0a;
+  color: #a3a3a3;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: #e5e5e5;
+  border-color: #404040;
+}
+
+.tab.active {
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+}
+
+label {
+  display: block;
+  font-size: 0.78rem;
+  margin: 12px 0 6px;
+  color: #a3a3a3;
+  font-weight: 500;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #262626;
+  background: #0a0a0a;
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+input::placeholder {
+  color: #525252;
+}
+
+input:focus {
+  outline: none;
+  border-color: #ffffff;
+  background: #050505;
+}
+
+.btn {
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: opacity 0.15s;
+}
+
+.btn.primary {
+  background: #ffffff;
+  color: #000000;
+}
+
+.btn.primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.btn.secondary {
+  background: #0a0a0a;
+  color: #f5f5f5;
+  border: 1px solid #404040;
+  margin-top: 10px;
+}
+
+.btn.secondary:hover:not(:disabled) {
+  border-color: #737373;
+  background: #141414;
+}
+
+.continue-choice {
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.continue-title {
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.continue-sub {
+  font-size: 0.82rem;
+  color: #a3a3a3;
+  text-align: center;
+  margin-bottom: 16px;
+  line-height: 1.45;
+}
+
+.continue-actions .btn {
+  margin-top: 0;
+}
+
+.continue-actions .btn + .btn {
+  margin-top: 10px;
+}
+
+.continue-hint {
+  margin-top: 14px;
+  font-size: 0.72rem;
+  color: #737373;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.msg {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+.msg.error {
+  background: #0a0a0a;
+  color: #fca5a5;
+  border: 1px solid #3f1515;
+}
+
+.msg.ok {
+  background: #0a0a0a;
+  color: #bbf7d0;
+  border: 1px solid #14532d;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg.error {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hw-note {
+  margin-top: 16px;
+  font-size: 0.68rem;
+  color: #737373;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.hw {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #1a1a1a;
+  font-size: 0.68rem;
+  color: #525252;
+  word-break: break-all;
+}
+
+.hw span {
+  color: #737373;
+}
+
+.hw code {
+  color: #a3a3a3;
+}
+
+.update-banner {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #7f1d1d;
+  background: #140808;
+}
+
+.update-banner-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fecaca;
+  margin-bottom: 6px;
+}
+
+.update-banner-text {
+  font-size: 0.78rem;
+  color: #d4d4d4;
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+
+.update-banner-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.update-progress {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: #86efac;
+}

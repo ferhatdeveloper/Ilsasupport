@@ -1,0 +1,99 @@
+/* Legacy/global CSS override katmani
+   Sadece yeni tasarim kapsayicilari icinde etkilidir. */
+
+:root.dark {
+  --ilsa-page-bg: #050914;
+  --ilsa-page-bg-soft: radial-gradient(circle at 84% -12%, rgba(255, 60, 71, 0.2), transparent 34%),
+    radial-gradient(circle at -10% -8%, rgba(22, 67, 162, 0.25), transparent 38%);
+  --ilsa-surface-bg: #101d32;
+  --ilsa-surface-border: rgba(255, 255, 255, 0.16);
+  --ilsa-text-strong: #f3f6ff;
+  --ilsa-text-muted: #b4bfd6;
+}
+
+:root.light {
+  --ilsa-page-bg: #f4f7fc;
+  --ilsa-page-bg-soft: radial-gradient(circle at 84% -12%, rgba(255, 60, 71, 0.1), transparent 34%),
+    radial-gradient(circle at -10% -8%, rgba(22, 67, 162, 0.12), transparent 38%);
+  --ilsa-surface-bg: #ffffff;
+  --ilsa-surface-border: #d5deea;
+  --ilsa-text-strong: #111827;
+  --ilsa-text-muted: #5d6880;
+}
+
+.ilsa-modern-page,
+.ilsa-page {
+  color-scheme: light;
+}
+
+:root.dark .ilsa-modern-page,
+:root.dark .ilsa-page {
+  color-scheme: dark;
+}
+
+/* Eski utility siniflari ilsa kapsayicisinda tasarimi bozmasin */
+.ilsa-modern-page .bg-white,
+.ilsa-page .bg-white {
+  background-color: var(--ilsa-surface-bg, #101d32) !important;
+}
+
+.ilsa-modern-page .text-white,
+.ilsa-page .text-white {
+  color: var(--ilsa-text-strong, #f3f6ff) !important;
+}
+
+.ilsa-modern-page .text-gray-900,
+.ilsa-page .text-gray-900 {
+  color: var(--ilsa-text-strong, #f3f6ff) !important;
+}
+
+.ilsa-modern-page .text-gray-700,
+.ilsa-modern-page .text-gray-600,
+.ilsa-modern-page .text-gray-500,
+.ilsa-page .text-gray-700,
+.ilsa-page .text-gray-600,
+.ilsa-page .text-gray-500 {
+  color: var(--ilsa-text-muted, #b4bfd6) !important;
+}
+
+.ilsa-modern-page .border-gray-200,
+.ilsa-page .border-gray-200 {
+  border-color: var(--ilsa-surface-border, rgba(255, 255, 255, 0.16)) !important;
+}
+
+.ilsa-modern-page .border-gray-700,
+.ilsa-page .border-gray-700 {
+  border-color: var(--ilsa-surface-border, rgba(255, 255, 255, 0.18)) !important;
+}
+
+/* Light mod icin net kontrast */
+:root.light .ilsa-modern-page .bg-white,
+:root.light .ilsa-page .bg-white {
+  background-color: #ffffff !important;
+}
+
+:root.light .ilsa-modern-page .text-white,
+:root.light .ilsa-page .text-white {
+  color: #111827 !important;
+}
+
+:root.light .ilsa-modern-page .text-gray-900,
+:root.light .ilsa-page .text-gray-900 {
+  color: #111827 !important;
+}
+
+:root.light .ilsa-modern-page .text-gray-700,
+:root.light .ilsa-modern-page .text-gray-600,
+:root.light .ilsa-modern-page .text-gray-500,
+:root.light .ilsa-page .text-gray-700,
+:root.light .ilsa-page .text-gray-600,
+:root.light .ilsa-page .text-gray-500 {
+  color: #5d6880 !important;
+}
+
+:root.light .ilsa-modern-page .border-gray-200,
+:root.light .ilsa-page .border-gray-200,
+:root.light .ilsa-modern-page .border-gray-700,
+:root.light .ilsa-page .border-gray-700 {
+  border-color: #d5deea !important;
+}

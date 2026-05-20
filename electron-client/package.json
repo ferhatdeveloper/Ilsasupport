@@ -1,0 +1,55 @@
+{
+  "name": "ilsa-support-desktop",
+  "version": "1.0.3",
+  "description": "ILSA Support — masaüstü giriş (cihaz kilidi)",
+  "main": "main.js",
+  "author": "ILSA Support",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win portable --x64"
+  },
+  "build": {
+    "appId": "com.ilsasupport.desktop",
+    "productName": "ILSA Support",
+    "directories": {
+      "output": "release-1.0.3"
+    },
+    "electronDist": "../tools/electron-dist",
+    "electronVersion": "28.3.3",
+    "files": [
+      "main.js",
+      "preload.js",
+      "device_keys.js",
+      "sign_proxy.js",
+      "web_preload.js",
+      "config.json",
+      "renderer/**/*",
+      "!renderer/**/*.map"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "ILSA Support",
+      "artifactName": "ILSA-Support-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "ILSA-Support-Portable-${version}.${ext}"
+    }
+  },
+  "dependencies": {
+    "node-machine-id": "^1.1.12"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  }
+}

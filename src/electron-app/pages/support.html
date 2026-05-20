@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ILSA Support - Uzaktan Destek</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+      color: #ffffff;
+      padding: 30px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: #9ca3af;
+      font-size: 13px;
+    }
+
+    .support-id-box {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      border-radius: 16px;
+      padding: 25px;
+      text-align: center;
+      margin-bottom: 25px;
+      box-shadow: 0 8px 32px rgba(16, 185, 129, 0.3);
+    }
+
+    .support-id-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      opacity: 0.9;
+      margin-bottom: 10px;
+    }
+
+    .support-id {
+      font-size: 32px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 15px;
+    }
+
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .copy-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .info-section {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      color: #9ca3af;
+      font-size: 13px;
+    }
+
+    .info-value {
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .status-box {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .status-box.waiting {
+      background: rgba(251, 191, 36, 0.1);
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+
+    .status-box.active {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .status-box.error {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #3b82f6;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+
+    .status-box.waiting .status-indicator {
+      background: #fbbf24;
+    }
+
+    .status-box.active .status-indicator {
+      background: #10b981;
+    }
+
+    .status-box.error .status-indicator {
+      background: #ef4444;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .instructions {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #d1d5db;
+    }
+
+    .instructions h3 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: white;
+    }
+
+    .instructions ol {
+      padding-left: 20px;
+    }
+
+    .instructions li {
+      margin-bottom: 8px;
+    }
+
+    .close-btn {
+      width: 100%;
+      padding: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      color: #fca5a5;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: auto;
+    }
+
+    .close-btn:hover {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(16, 185, 129, 0.95);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Uzaktan Destek</h1>
+    <p>Destek ekibimiz sizinle bağlantı kurmak için bu ID'yi kullanacak</p>
+  </div>
+
+  <div class="support-id-box">
+    <div class="support-id-label">Destek ID</div>
+    <div class="support-id" id="support-id">YÜKLENIYOR...</div>
+    <button class="copy-btn" onclick="copyToClipboard()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+      </svg>
+      Kopyala
+    </button>
+  </div>
+
+  <div class="info-section">
+    <div class="info-row">
+      <span class="info-label">Kullanıcı</span>
+      <span class="info-value" id="user-name">-</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Email</span>
+      <span class="info-value" id="user-email">-</span>
+    </div>
+  </div>
+
+  <div class="status-box waiting" id="status-box">
+    <span class="status-indicator"></span>
+    <span id="status-text">Destek talebi bekleniyor...</span>
+  </div>
+
+  <div class="instructions">
+    <h3>📋 Nasıl Çalışır?</h3>
+    <ol>
+      <li>Yukarıdaki <strong>Destek ID</strong>'yi kopyalayın</li>
+      <li>Bu ID'yi destek ekibimize iletin (WhatsApp, email, telefon)</li>
+      <li>Destek ekibi bağlantı talebi gönderdiğinde onay verin</li>
+      <li>Bağlantı kurulduğunda ekibimiz size yardımcı olacak</li>
+    </ol>
+  </div>
+
+  <button class="close-btn" onclick="closeWindow()">Kapat</button>
+
+  <div class="toast" id="toast">Kopyalandı!</div>
+
+  <script src="../scripts/support.js"></script>
+</body>
+</html>
