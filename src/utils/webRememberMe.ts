@@ -108,7 +108,8 @@ export async function webSignIn(opts: {
     return { ok: false, error: 'Sunucudan geçersiz yanıt' };
   }
 
-  if (data.webPresenceKey) setStoredWebPresenceKey(data.webPresenceKey);
+  const presenceKey = data.webPresenceKey || (data as { sessionId?: string }).sessionId;
+  if (presenceKey) setStoredWebPresenceKey(presenceKey);
 
   if (opts.rememberMe) {
     saveWebRemember(username, opts.password);
@@ -120,7 +121,7 @@ export async function webSignIn(opts: {
     ok: true,
     accessToken: data.accessToken,
     user: data.user,
-    webPresenceKey: data.webPresenceKey,
+    webPresenceKey: data.webPresenceKey || (data as { sessionId?: string }).sessionId,
   };
 }
 

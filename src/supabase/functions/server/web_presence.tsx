@@ -177,6 +177,7 @@ export async function getGlobalOnlineSummary(): Promise<{
 
   return {
     onlineUsers: onlineUserIds.size,
+    onlineUserIds: [...onlineUserIds],
     webSessions,
     webUsers,
     kvSessions,

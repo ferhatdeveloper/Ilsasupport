@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef } from 'react';
-import { Users, UserPlus, Shield, Clock, HardDrive, Trash2, Edit, Search, Filter, Download, Calendar, FileSpreadsheet } from 'lucide-react';
+import { Users, UserPlus, Shield, Clock, HardDrive, Trash2, Edit, Search, Filter, Download, Calendar, FileSpreadsheet, Circle } from 'lucide-react';
 import { AdminUserEditPage } from './AdminUserEditPage';
 import { toast } from 'sonner@2.0.3';
 import { apiFunctionsBase } from '../../utils/supabase/info';
@@ -64,6 +64,8 @@ export function AdminUsersPage() {
     : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50';
 
   const [users, setUsers] = useState<User[]>([]);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const [onlineCount, setOnlineCount] = useState(0);
   const { loading, beginLoad, endLoad } = useAdminPageLoad();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPlan, setFilterPlan] = useState<'all' | 'free' | 'premium' | 'admin'>('all');
@@ -79,7 +81,19 @@ export function AdminUsersPage() {
   const [itemsPerPage] = useState(20);
 
   useEffect(() => {
-    loadUsers();
+    void loadUsers();
+    const timer = window.setInterval(() => {
+      void adminFetch(`${apiFunctionsBase}/admin/online-summary`)
+        .then(async (res) => {
+          if (!res.ok) return;
+          const d = await res.json();
+          const ids = (d.online?.onlineUserIds as string[] | undefined) ?? [];
+          setOnlineUserIds(new Set(ids.map(String)));
+          setOnlineCount(Number(d.online?.onlineUsers ?? ids.length));
+        })
+        .catch(() => undefined);
+    }, 30_000);
+    return () => window.clearInterval(timer);
   }, []);
   
   // Reset to page 1 when search/filter changes
@@ -90,16 +104,24 @@ export function AdminUsersPage() {
   const loadUsers = async () => {
     try {
       beginLoad();
-      const response = await adminFetch(`${apiFunctionsBase}/admin/users`);
+      const [usersRes, onlineRes] = await Promise.all([
+        adminFetch(`${apiFunctionsBase}/admin/users`),
+        adminFetch(`${apiFunctionsBase}/admin/online-summary`),
+      ]);
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Users response:', data);
-        console.log('Users array:', data.users);
+      if (usersRes.ok) {
+        const data = await usersRes.json();
         setUsers(data.users || []);
       } else {
-        const errorText = await response.text();
-        console.error('Failed to load users:', response.status, errorText);
+        const errorText = await usersRes.text();
+        console.error('Failed to load users:', usersRes.status, errorText);
+      }
+
+      if (onlineRes.ok) {
+        const d = await onlineRes.json();
+        const ids = (d.online?.onlineUserIds as string[] | undefined) ?? [];
+        setOnlineUserIds(new Set(ids.map(String)));
+        setOnlineCount(Number(d.online?.onlineUsers ?? ids.length));
       }
     } catch (error) {
       console.error('Error loading users:', error);
@@ -361,6 +383,10 @@ export function AdminUsersPage() {
             <div className={statLabelClass}>Admin</div>
             <div className={statValueClass}>{users.filter(u => u.plan === 'admin').length}</div>
           </div>
+          <div className={statCardClass}>
+            <div className={statLabelClass}>Çevrimiçi</div>
+            <div className={`${statValueClass} text-emerald-500`}>{onlineCount}</div>
+          </div>
         </div>
       </div>
 
@@ -373,6 +399,7 @@ export function AdminUsersPage() {
             <thead className={theadClass}>
               <tr>
                 <th className={thClass}>Kullanıcı</th>
+                <th className={thClass}>Durum</th>
                 <th className={thClass}>Plan</th>
                 <th className={thClass}>Süre</th>
                 <th className={thClass}>İndirme</th>
@@ -395,6 +422,25 @@ export function AdminUsersPage() {
                         )}
                       </div>
                     </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {onlineUserIds.has(user.id) ? (
+                      <span
+                        className={
+                          isDark
+                            ? 'inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400'
+                            : 'inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700'
+                        }
+                        title="Son 15 dakikada aktif"
+                      >
+                        <Circle className="w-2.5 h-2.5 fill-current" />
+                        Çevrimiçi
+                      </span>
+                    ) : (
+                      <span className={isDark ? 'text-xs text-gray-500' : 'text-xs text-slate-500'}>
+                        Çevrimdışı
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 text-xs rounded ${getPlanBadgeColor(user.plan)}`}>

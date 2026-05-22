@@ -58,6 +58,7 @@ export function AuthModal({ view, onClose, onSignIn, onSwitchView }: AuthModalPr
       accessToken?: string;
       user?: unknown;
       webPresenceKey?: string;
+      sessionId?: string;
     }>(signinRes);
 
     if (!signinRes.ok) {
@@ -78,7 +79,8 @@ export function AuthModal({ view, onClose, onSignIn, onSwitchView }: AuthModalPr
     if (!signinData.accessToken || !signinData.user) {
       throw new Error('Sunucudan geçersiz yanıt');
     }
-    if (signinData.webPresenceKey) setStoredWebPresenceKey(signinData.webPresenceKey);
+    const presenceKey = signinData.webPresenceKey || signinData.sessionId;
+    if (presenceKey) setStoredWebPresenceKey(presenceKey);
     return signinData;
   };
 

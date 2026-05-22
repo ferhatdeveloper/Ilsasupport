@@ -19,6 +19,8 @@ import {
   endWebPresence,
   endStaleWebPresence,
   countActiveWebSessions,
+  getGlobalOnlineSummary,
+  adminKickWebPresence,
 } from './web_presence.tsx';
 import { logLoginEvent, getIpLoginSummary } from './login_audit.tsx';
 import { requireAdmin } from './admin_endpoints.tsx';
@@ -342,6 +344,29 @@ export function setupSettingsEndpoints(app: Hono): void {
       return c.json({ sessions });
     } catch (e) {
       return c.json({ error: 'Oturumlar alınamadı' }, 500);
+    }
+  });
+
+  app.get('/make-server-47081311/admin/online-summary', requireAdmin, async (c) => {
+    try {
+      const online = await getGlobalOnlineSummary();
+      return c.json({ online });
+    } catch (e) {
+      console.error('online-summary error:', e);
+      return c.json({ error: 'Çevrimiçi özet alınamadı' }, 500);
+    }
+  });
+
+  app.post('/make-server-47081311/admin/web-presence/:presenceId/kick', requireAdmin, async (c) => {
+    try {
+      const presenceId = c.req.param('presenceId');
+      if (!presenceId) return c.json({ error: 'Oturum kimliği gerekli' }, 400);
+      const result = await adminKickWebPresence(presenceId);
+      if (!result.userId) return c.json({ error: 'Aktif oturum bulunamadı' }, 404);
+      return c.json({ success: true, ...result });
+    } catch (e) {
+      console.error('web-presence kick error:', e);
+      return c.json({ error: 'Oturum kapatılamadı' }, 500);
     }
   });
 

@@ -11,6 +11,8 @@ import { effectiveMaxSessions, maxSessionsFromSources } from './subscription_hel
 import * as loginApproval from './login_approval.tsx';
 import * as desktopApp from './desktop_app_version.tsx';
 import { bumpLastPublishedFileId } from './site_settings.tsx';
+import * as security from './security_middleware.tsx';
+import { endAllWebPresenceForUser } from './web_presence.tsx';
 
 const MAX_CMS_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -446,6 +448,20 @@ async function userDataPatchActiveSessions(userId: string, count: number) {
   await kv.set(`user:${userId}`, userData);
 }
 
+async function adminForceLogoutUser(userId: string) {
+  const userSessions = await kv.getByPrefix(`session:${userId}:`);
+  const sessionKeys = userSessions
+    .map((s: { key?: string }) => s.key)
+    .filter((k: string | undefined): k is string => !!k && !k.startsWith('session:token:'));
+  if (sessionKeys.length > 0) await kv.mdel(sessionKeys);
+  await endAllWebPresenceForUser(userId, 'admin_force');
+  const revokedJwt = await jwtAuth.revokeAllJwtSessionsForUser(userId);
+  const revokedSecure = await security.revokeAllSessionsForUser(userId);
+  await db.deleteAllSessions(userId);
+  await userDataPatchActiveSessions(userId, 0);
+  return { revokedJwt, revokedSecure, kvDeleted: sessionKeys.length };
+}
+
 /**
  * Admin middleware - Kullanıcının admin olduğunu doğrular
  */
@@ -617,6 +633,9 @@ export function setupAdminEndpoints(app: Hono) {
       const ipLoginSummary = await getIpLoginSummary(30);
       const recentLogins = await getRecentLoginsWithGeo(20);
 
+      const { getGlobalOnlineSummary } = await import('./web_presence.tsx');
+      const onlineSummary = await getGlobalOnlineSummary();
+
       return c.json({
         stats: {
           totalUsers: allUsers.length,
@@ -631,6 +650,9 @@ export function setupAdminEndpoints(app: Hono) {
           todayDownloads: todayDownloads || 0,
           weekNewUsers,
           activeSessions,
+          onlineUsers: onlineSummary.onlineUsers,
+          onlineConnections: onlineSummary.totalConnections,
+          onlineWebSessions: onlineSummary.webSessions,
           recentDownloads,
           ipLoginSummary,
           recentLogins,
@@ -639,6 +661,24 @@ export function setupAdminEndpoints(app: Hono) {
     } catch (error) {
       console.error('Error loading stats:', error);
       return c.json({ error: 'Failed to load stats' }, 500);
+    }
+  });
+
+  app.post('/make-server-47081311/admin/users/:userId/force-logout', requireAdmin, async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const userData = await kv.get(`user:${userId}`);
+      if (!userData) return c.json({ error: 'Kullanıcı bulunamadı' }, 404);
+      const result = await adminForceLogoutUser(userId);
+      return c.json({
+        success: true,
+        message: 'Tüm oturumlar sonlandırıldı',
+        ...result,
+        revokedTotal: result.revokedJwt + result.revokedSecure,
+      });
+    } catch (error) {
+      console.error('Error force logout:', error);
+      return c.json({ error: 'Oturumlar kapatılamadı' }, 500);
     }
   });
   

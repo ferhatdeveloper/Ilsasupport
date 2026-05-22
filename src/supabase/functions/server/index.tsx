@@ -1534,6 +1534,7 @@ app.post('/make-server-47081311/signin', async (c) => {
       success: true,
       accessToken,
       sessionId,
+      webPresenceKey: sessionId,
       user: {
         id: row.id,
         username: userData.username,
