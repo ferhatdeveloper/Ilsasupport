@@ -43,6 +43,7 @@ import * as setupGuard from './setup_guard.ts';
 import {
   canAccessPremiumContent,
   effectiveMaxSessions,
+  maxSessionsFromSources,
   canAddSessionDevice,
   isPremiumPlanActive,
   PREMIUM_UPSELL_ENABLED,
@@ -1388,8 +1389,9 @@ app.post('/make-server-47081311/signin', async (c) => {
         role: row.role,
         plan: row.plan,
       };
-      await kv.set(`user:${row.id}`, userData);
     }
+    userData.maxSessions = maxSessionsFromSources(userData, row);
+    await kv.set(`user:${row.id}`, userData);
     await setCachedUserKv(String(row.id), userData as Record<string, unknown>);
 
     const isWebDeviceId = (id: unknown) => String(id ?? '').startsWith('web_');
@@ -1616,6 +1618,20 @@ app.post('/make-server-47081311/electron-signin', async (c) => {
 
     const userId = user!.id;
     let userDataKv = await kv.get(`user:${userId}`);
+    if (!userDataKv) {
+      userDataKv = {
+        id: userId,
+        username: canonicalLoginUsernameFromUserRow({
+          id: String(user!.id),
+          username: user!.username,
+          email: user!.email,
+        }),
+        role: user!.role ?? 'user',
+        plan: user!.plan ?? 'free',
+      };
+    }
+    userDataKv.maxSessions = maxSessionsFromSources(userDataKv, user!);
+    await kv.set(`user:${userId}`, userDataKv);
 
     const gate = await loginApproval.gateElectronLogin(
       userId,
@@ -3293,7 +3309,6 @@ app.post('/make-server-47081311/electron-signin-secure', async (c) => {
         dailyDownloads: row.daily_downloads ?? 0,
         lastDownloadReset: row.last_download_reset ?? new Date().toISOString(),
       };
-      await kv.set(`user:${userId}`, userData);
     } else {
       userData = {
         ...userData,
@@ -3303,8 +3318,10 @@ app.post('/make-server-47081311/electron-signin-secure', async (c) => {
         role: row.role ?? userData.role,
         plan: row.plan ?? userData.plan,
       };
-      await kv.set(`user:${userId}`, userData);
     }
+    userData.maxSessions = maxSessionsFromSources(userData, row);
+    await kv.set(`user:${userId}`, userData);
+    await setCachedUserKv(String(userId), userData as Record<string, unknown>);
 
     const gate = await loginApproval.gateElectronLogin(
       userId,

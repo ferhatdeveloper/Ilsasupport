@@ -32,6 +32,31 @@ export function effectiveMaxSessions(userData: {
   return 1;
 }
 
+/** PostgreSQL users.legacy_profile içindeki özel oturum hakkı */
+export function legacyProfileMaxSessions(
+  row?: { legacy_profile?: unknown } | null,
+): number | undefined {
+  const lp = row?.legacy_profile;
+  if (!lp || typeof lp !== 'object') return undefined;
+  const raw = Number((lp as { maxSessions?: number }).maxSessions);
+  if (!Number.isFinite(raw)) return undefined;
+  const n = Math.floor(raw);
+  if (n >= 1 && n <= 50) return n;
+  return undefined;
+}
+
+/** KV + PostgreSQL satırından geçerli eşzamanlı oturum limiti */
+export function maxSessionsFromSources(
+  userData?: { role?: string; plan?: string; maxSessions?: number } | null,
+  row?: { role?: string; plan?: string; legacy_profile?: unknown } | null,
+): number {
+  return effectiveMaxSessions({
+    role: userData?.role ?? row?.role,
+    plan: userData?.plan ?? row?.plan,
+    maxSessions: userData?.maxSessions ?? legacyProfileMaxSessions(row),
+  });
+}
+
 /** KV oturum kayıtlarından benzersiz aktif cihaz sayısı */
 export function countDistinctSessionDevices(
   sessions: Array<{ value?: { deviceId?: string }; deviceId?: string }>,

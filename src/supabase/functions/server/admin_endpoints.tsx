@@ -7,7 +7,7 @@ import * as kv from './kv_store.tsx';
 import * as gdrive from './google_drive_helper.tsx';
 import { escapeIlikePattern } from './postgresql_helpers.tsx';
 import { parseUserImportBuffer, executeUserImport } from './import_users_batch.tsx';
-import { effectiveMaxSessions } from './subscription_helpers.tsx';
+import { effectiveMaxSessions, maxSessionsFromSources } from './subscription_helpers.tsx';
 import * as loginApproval from './login_approval.tsx';
 import * as desktopApp from './desktop_app_version.tsx';
 import { bumpLastPublishedFileId } from './site_settings.tsx';
@@ -220,8 +220,11 @@ function planForAdminUi(userData: { role?: string; plan?: string }): 'free' | 'p
   return 'free';
 }
 
-function maxSessionsForUser(userData: { role?: string; plan?: string; maxSessions?: number }): number {
-  return effectiveMaxSessions(userData);
+function maxSessionsForUser(
+  userData?: { role?: string; plan?: string; maxSessions?: number } | null,
+  row?: { role?: string; plan?: string; legacy_profile?: unknown } | null,
+): number {
+  return maxSessionsFromSources(userData, row);
 }
 
 type AdminDeviceRow = {
@@ -673,7 +676,7 @@ export function setupAdminEndpoints(app: Hono) {
             expiresAt: userData.expiresAt,
             downloadCount: userData.downloadCount || 0,
             activeSessions: userData.activeSessions || 0,
-            maxSessions: maxSessionsForUser(userData),
+            maxSessions: maxSessionsForUser(userData, pgRow),
             hardwareId:
               userData.hardwareId ??
               userData.registeredDeviceId ??
@@ -846,7 +849,16 @@ export function setupAdminEndpoints(app: Hono) {
       userData.name = name;
       userData.plan = plan;
       userData.role = roleVal;
-      userData.maxSessions = effectiveMaxSessions({ role: roleVal, plan });
+      const maxSessionsRaw = body.maxSessions;
+      if (
+        maxSessionsRaw != null &&
+        maxSessionsRaw !== '' &&
+        Number.isFinite(Number(maxSessionsRaw))
+      ) {
+        userData.maxSessions = Math.min(50, Math.max(1, Math.floor(Number(maxSessionsRaw))));
+      } else {
+        userData.maxSessions = effectiveMaxSessions({ role: roleVal, plan });
+      }
       userData.downloadLimit = roleVal === 'admin' ? -1 : plan === 'premium' ? 50 : 5;
 
       if (plan === 'admin') {
@@ -922,7 +934,7 @@ export function setupAdminEndpoints(app: Hono) {
         expiresAt: userData?.expiresAt ?? null,
         downloadCount: userData?.downloadCount ?? 0,
         activeSessions: userData?.activeSessions ?? 0,
-        maxSessions: maxSessionsForUser(userData ?? { role: row?.role, plan: row?.plan }),
+        maxSessions: maxSessionsForUser(userData, row),
         hardwareId:
           row?.registered_hardware_id ??
           userData?.hardwareId ??

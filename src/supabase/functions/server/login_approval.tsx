@@ -3,7 +3,7 @@
  */
 import * as db from './db_helpers.tsx';
 import * as kv from './kv_store.tsx';
-import { effectiveMaxSessions } from './subscription_helpers.tsx';
+import { maxSessionsFromSources } from './subscription_helpers.tsx';
 
 export type LoginGateResult =
   | { allowed: true }
@@ -183,8 +183,13 @@ export async function getApprovedHardwareId(userId: string): Promise<string | nu
   return rows[0]?.hardware_id ? String(rows[0].hardware_id) : null;
 }
 
-/** Eski veri: birden fazla onaylı cihaz varsa yalnızca birincil/birincil kayıt kalır */
+/** Tek cihaz hakkı olan hesaplarda fazla onaylı kayıtları kaldır */
 export async function normalizeSingleApprovedDevice(userId: string): Promise<void> {
+  const row = await db.getUserById(userId);
+  const userData = (await kv.get(`user:${userId}`)) as { role?: string; plan?: string; maxSessions?: number } | null;
+  const maxSessions = maxSessionsFromSources(userData, row);
+  if (maxSessions > 1) return;
+
   const keep = await getApprovedHardwareId(userId);
   if (!keep) return;
   const s = (await import('./pg_client.ts')).getSql();
@@ -229,6 +234,8 @@ export async function gateElectronLogin(
     };
   }
 
+  const maxSessions = maxSessionsFromSources(userData, row);
+
   const dev = await getLoginDevice(userId, hw);
   if (dev?.status === 'rejected') {
     return {
@@ -239,53 +246,33 @@ export async function gateElectronLogin(
     };
   }
 
-  if (dev?.status === 'approved' || row.registered_hardware_id === hw) {
-    if (dev?.status !== 'approved') {
-      await approveLoginDevice(userId, hw, deviceInfo ?? { syncFromRegistered: true });
-    }
+  if (dev?.status === 'approved') {
     return { allowed: true };
   }
 
-  const maxSessions = effectiveMaxSessions({
-    role: row.role,
-    plan: row.plan,
-    maxSessions: userData?.maxSessions as number | undefined,
-  });
   const approvedCount = await countApprovedLoginDevices(userId);
-  const approvedHw = await getApprovedHardwareId(userId);
 
-  // İlk kayıtlı cihaz: yönetici onayı olmadan otomatik onaylanır
-  if (!approvedHw) {
-    await approveLoginDevice(userId, hw, deviceInfo ?? { autoFirstDevice: true });
+  if (approvedCount === 0 || approvedCount < maxSessions) {
+    await approveLoginDevice(userId, hw, deviceInfo ?? { autoElectron: true }, row, userData);
     return { allowed: true };
   }
 
-  if (approvedHw !== hw) {
-    if (approvedCount < maxSessions) {
-      await approveLoginDevice(userId, hw, deviceInfo ?? { autoMultiDevice: true });
-      return { allowed: true };
-    }
-    await upsertPendingLoginDevice(userId, hw, deviceInfo);
-    const shortHw = hw.length > 12 ? `${hw.slice(0, 8)}…${hw.slice(-4)}` : hw;
-    return {
-      allowed: false,
-      status: 403,
-      error:
-        `Bu hesap için en fazla ${maxSessions} onaylı cihaz kullanılabilir. Yönetici panelinde «${shortHw}» cihazını onaylatın veya pasif oturumu kapatın.`,
-      errorCode: 'HARDWARE_MISMATCH',
-      registeredDevice: row.registered_device_info,
-      pendingHardwareId: hw,
-      maxSessions,
-    };
+  if (row.registered_hardware_id === hw) {
+    await approveLoginDevice(userId, hw, deviceInfo ?? { syncFromRegistered: true }, row, userData);
+    return { allowed: true };
   }
 
   await upsertPendingLoginDevice(userId, hw, deviceInfo);
+  const shortHw = hw.length > 12 ? `${hw.slice(0, 8)}…${hw.slice(-4)}` : hw;
   return {
     allowed: false,
     status: 403,
     error:
-      'Cihazınız onay bekliyor. Yönetici onayladıktan sonra tekrar giriş yapın.',
-    errorCode: 'DEVICE_PENDING_APPROVAL',
+      `Bu hesap için en fazla ${maxSessions} onaylı cihaz kullanılabilir. Yönetici panelinde «${shortHw}» cihazını onaylatın veya pasif oturumu kapatın.`,
+    errorCode: 'HARDWARE_MISMATCH',
+    registeredDevice: row.registered_device_info,
+    pendingHardwareId: hw,
+    maxSessions,
   };
 }
 
@@ -310,10 +297,17 @@ export async function gateWebLogin(
   return { allowed: true };
 }
 
-export async function approveLoginDevice(userId: string, hardwareId: string, deviceInfo?: unknown) {
+export async function approveLoginDevice(
+  userId: string,
+  hardwareId: string,
+  deviceInfo?: unknown,
+  row?: { role?: string; plan?: string; legacy_profile?: unknown } | null,
+  userData?: { role?: string; plan?: string; maxSessions?: number } | null,
+) {
   const s = (await import('./pg_client.ts')).getSql();
-  const userData = (await kv.get(`user:${userId}`)) as { role?: string; plan?: string; maxSessions?: number } | null;
-  const maxSessions = effectiveMaxSessions(userData ?? {});
+  const pgRow = row ?? await db.getUserById(userId);
+  const kvData = userData ?? ((await kv.get(`user:${userId}`)) as { role?: string; plan?: string; maxSessions?: number } | null);
+  const maxSessions = maxSessionsFromSources(kvData, pgRow);
   const approvedCount = await countApprovedLoginDevices(userId);
   const existing = await getLoginDevice(userId, hardwareId);
   const alreadyApproved = existing?.status === 'approved';
