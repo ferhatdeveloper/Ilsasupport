@@ -179,9 +179,20 @@ function renderMaskedFrame(popup: Window, url: string): boolean {
           </style>
         </head>
         <body>
-          <iframe src="${url}" referrerpolicy="no-referrer"></iframe>
-          <div class="loading">Dosya yükleniyor...</div>
+          <iframe id="dl-frame" src="${url}" referrerpolicy="no-referrer"></iframe>
+          <div class="loading" id="dl-loading">Dosya yükleniyor...</div>
           <script>
+            (function () {
+              var frame = document.getElementById('dl-frame');
+              var loading = document.getElementById('dl-loading');
+              function hideLoading() {
+                if (loading) loading.style.display = 'none';
+              }
+              if (frame) {
+                frame.addEventListener('load', hideLoading);
+                window.setTimeout(hideLoading, 12000);
+              }
+            })();
             document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, { passive: false });
             document.addEventListener('keydown', function (e) {
               var key = String(e.key || '').toUpperCase();

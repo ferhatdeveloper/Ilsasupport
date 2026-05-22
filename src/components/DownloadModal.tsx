@@ -39,7 +39,10 @@ export function DownloadModal({
     setImgFallbackToIframe(false);
   }, [downloadFrameUrl]);
 
-  /** Google doğrudan iframe src: içerik cross-origin olduğu için içerdeki sağ tık tarayıcıya kalır; kabuk + capture ile mümkün olanlar */
+  /** Bağlantı hazırken «yükleniyor» paneli gösterme — önizleme ile çakışmasın */
+  const showPreparingPanel = preparingDownload && !downloadFrameUrl;
+
+  /** Google doğrudan iframe src: içerik cross-origin olduğu için içerdeki sağ tık tarayıcıya kalır; kabuk + capture ile mükmün olanlar */
   const activeGoogleIframeLeakGuard =
     isOpen &&
     Boolean(downloadFrameUrl && shouldShowDownloadUrlInIframe(downloadFrameUrl));
@@ -135,13 +138,13 @@ export function DownloadModal({
           ) : null}
         </p>
 
-        {preparingDownload && (
+        {showPreparingPanel && (
           <p className="text-sm font-medium text-red-600 mb-4">
             Hazırlanıyor... {countdown}s
           </p>
         )}
 
-        {!preparingDownload && downloadStatus && (
+        {!showPreparingPanel && downloadStatus && (
           <p className="text-sm font-medium text-green-600 mb-4">
             {downloadStatus}
           </p>
@@ -174,7 +177,7 @@ export function DownloadModal({
           </button>
         </div>
 
-        {preparingDownload && !downloadFrameUrl && (
+        {showPreparingPanel && (
           <div className="mt-1 rounded-lg border-2 border-red-300 bg-red-50/60 p-6">
             <div className="flex flex-col items-center justify-center gap-3 text-center">
               <div className="h-8 w-8 rounded-full border-4 border-red-600 border-t-transparent animate-spin" />

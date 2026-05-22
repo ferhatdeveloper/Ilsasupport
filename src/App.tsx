@@ -86,11 +86,13 @@ function AppContent() {
   useEffect(() => {
     const onJwtRotated = (event: Event) => {
       const token = (event as CustomEvent<string>).detail;
-      if (token && isJwtAccessToken(token)) setAccessToken(token);
+      if (!token || !isJwtAccessToken(token)) return;
+      setAccessToken((prev) => (prev === token ? prev : token));
     };
     const onSecureRotated = () => {
       const jwt = getStoredJwtAccessToken();
-      if (jwt) setAccessToken(jwt);
+      if (!jwt) return;
+      setAccessToken((prev) => (prev === jwt ? prev : jwt));
     };
     const onUserUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail;

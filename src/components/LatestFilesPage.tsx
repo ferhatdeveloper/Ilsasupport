@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Download, FileText, Grid3x3, List, Clock, BarChart2, Lock } from 'lucide-react';
 import { FavoriteStarButton } from './FavoriteStarButton';
 import { canDownloadFiles, openPremiumUpsell } from '../utils/membership';
@@ -136,17 +136,17 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
     return () => window.clearInterval(interval);
   }, [preparingDownload]);
 
-  useEffect(() => {
-    loadLatestFiles();
-  }, [accessToken]);
+  const filesRef = useRef<FileItem[]>([]);
+  filesRef.current = files;
 
   useEffect(() => {
     fetchBrandMarkaPaths().then(setMarkaPaths);
   }, []);
 
-  const loadLatestFiles = async () => {
+  const loadLatestFiles = useCallback(async (opts?: { silent?: boolean }) => {
+    const showSkeleton = !opts?.silent && filesRef.current.length === 0;
     try {
-      setLoading(true);
+      if (showSkeleton) setLoading(true);
       const response = await authenticatedFetch(
         `${apiFunctionsBase}/latest-files?limit=50`,
         {},
@@ -160,9 +160,26 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
     } catch (error) {
       console.error('En yeni dosyalar yükleme hatası:', error);
     } finally {
-      setLoading(false);
+      if (showSkeleton) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadLatestFiles();
+  }, [user?.id, loadLatestFiles]);
+
+  /** JWT yenilense bile liste iskeletine dönmesin — arka planda sessiz yenile */
+  useEffect(() => {
+    const onJwtRotated = () => {
+      void loadLatestFiles({ silent: true });
+    };
+    window.addEventListener('ilsa-jwt-rotated', onJwtRotated);
+    window.addEventListener('ilsa-secure-token-rotated', onJwtRotated);
+    return () => {
+      window.removeEventListener('ilsa-jwt-rotated', onJwtRotated);
+      window.removeEventListener('ilsa-secure-token-rotated', onJwtRotated);
+    };
+  }, [loadLatestFiles]);
 
   /** İstemci tarafında kontrol et ve indirme onay modalını aç */
   const mayDownload = canDownloadFiles(user, accessToken);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Download, TrendingUp } from 'lucide-react';
 import { apiFunctionsBase } from '../utils/supabase/info';
 import { authenticatedFetch } from '../utils/secureApi';
@@ -12,12 +12,11 @@ interface LatestFilesTickerProps {
 
 export function LatestFilesTicker({ onFileClick, accessToken = null, isAdmin = false }: LatestFilesTickerProps) {
   const [files, setFiles] = useState<any[]>([]);
+  const [ready, setReady] = useState(false);
+  const filesRef = useRef<any[]>([]);
+  filesRef.current = files;
 
-  useEffect(() => {
-    loadLatestFiles();
-  }, [accessToken]);
-
-  const loadLatestFiles = async () => {
+  const loadLatestFiles = useCallback(async () => {
     try {
       const response = await authenticatedFetch(
         `${apiFunctionsBase}/latest-files?limit=15`,
@@ -31,10 +30,28 @@ export function LatestFilesTicker({ onFileClick, accessToken = null, isAdmin = f
       }
     } catch (error) {
       console.error('Latest files yükleme hatası:', error);
+    } finally {
+      setReady(true);
     }
-  };
+  }, []);
 
-  if (files.length === 0) {
+  useEffect(() => {
+    void loadLatestFiles();
+  }, [loadLatestFiles]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadLatestFiles();
+    };
+    window.addEventListener('ilsa-jwt-rotated', refresh);
+    window.addEventListener('ilsa-secure-token-rotated', refresh);
+    return () => {
+      window.removeEventListener('ilsa-jwt-rotated', refresh);
+      window.removeEventListener('ilsa-secure-token-rotated', refresh);
+    };
+  }, [loadLatestFiles]);
+
+  if (!ready || files.length === 0) {
     return null;
   }
 
