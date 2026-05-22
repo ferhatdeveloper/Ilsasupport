@@ -32,6 +32,33 @@ export function effectiveMaxSessions(userData: {
   return 1;
 }
 
+/** KV oturum kayıtlarından benzersiz aktif cihaz sayısı */
+export function countDistinctSessionDevices(
+  sessions: Array<{ value?: { deviceId?: string }; deviceId?: string }>,
+): number {
+  const ids = new Set<string>();
+  for (const item of sessions) {
+    const id = item.value?.deviceId ?? item.deviceId;
+    if (id) ids.add(String(id));
+  }
+  return ids.size;
+}
+
+/** Yeni cihazdan giriş: hak limiti dolmadıysa izin ver */
+export function canAddSessionDevice(
+  existingSessions: Array<{ value?: { deviceId?: string }; deviceId?: string }>,
+  newDeviceId: string,
+  maxSessions: number,
+): boolean {
+  const devices = new Set<string>();
+  for (const item of existingSessions) {
+    const id = item.value?.deviceId ?? item.deviceId;
+    if (id) devices.add(String(id));
+  }
+  if (devices.has(newDeviceId)) return true;
+  return devices.size < maxSessions;
+}
+
 export function canAccessPremiumContent(userData: {
   role?: string;
   plan?: string;

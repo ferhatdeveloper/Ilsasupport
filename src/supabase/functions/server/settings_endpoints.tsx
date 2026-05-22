@@ -22,6 +22,9 @@ import {
 } from './web_presence.tsx';
 import { logLoginEvent, getIpLoginSummary } from './login_audit.tsx';
 import { requireAdmin } from './admin_endpoints.tsx';
+import { effectiveMaxSessions } from './subscription_helpers.tsx';
+import { getServerHealth } from './server_health.tsx';
+import { resolveIpLocation } from './ip_geolocation.tsx';
 
 function clientIp(c: { req: { header: (n: string) => string | undefined } }): string {
   const raw = c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || 'unknown';
@@ -53,6 +56,25 @@ async function resolveUserFromBearer(c: {
 }
 
 export function setupSettingsEndpoints(app: Hono): void {
+  app.get('/make-server-47081311/public/health-scale', async (c) => {
+    const { cacheBackend, cacheHealth } = await import('./cache/index.ts');
+    const { queueBackend, getQueueHealth } = await import('./queue/message_queue.ts');
+    const ch = await cacheHealth();
+    const qh = getQueueHealth();
+    return c.json({
+      ok: true,
+      cache: cacheBackend(),
+      cacheConnected: ch.connected,
+      queue: queueBackend(),
+      queueConnected: qh.connected,
+      queueConsumerActive: qh.consumerActive,
+      queueMode: qh.mode,
+      queuePendingMemoryJobs: qh.pendingMemoryJobs,
+      pgPoolMax: Deno.env.get('PG_POOL_MAX') || '40',
+      jwtRotateEveryRequest: (Deno.env.get('JWT_ROTATE_EVERY_REQUEST') || '0') === '1',
+    });
+  });
+
   app.get('/make-server-47081311/public/site-settings', async (c) => {
     try {
       const s = await getSiteSettings();
@@ -61,6 +83,7 @@ export function setupSettingsEndpoints(app: Hono): void {
         webMaxConcurrentSessions: s.web_max_concurrent_sessions,
         webSessionHeartbeatSeconds: s.web_session_heartbeat_seconds,
         notifyNewFileToast: s.notify_new_file_toast,
+        fileRowAdminActionsEnabled: !!s.file_row_admin_actions_enabled,
       });
     } catch (e) {
       console.error('[public/site-settings]', e);
@@ -108,7 +131,7 @@ export function setupSettingsEndpoints(app: Hono): void {
       if (!sessionKey || sessionKey.length > 120) {
         return c.json({ error: 'sessionKey gerekli' }, 400);
       }
-      const gate = await canOpenWebSession(auth.userId);
+      const gate = await canOpenWebSession(auth.userId, effectiveMaxSessions(auth.userData));
       if (!gate.allowed) {
         return c.json({
           error: `Web oturum limiti (${gate.max}). Aktif: ${gate.active}. Çıkış yapmadan yeni sekme açılamaz.`,
@@ -242,6 +265,9 @@ export function setupSettingsEndpoints(app: Hono): void {
       if (body.webSessionHeartbeatSeconds != null) {
         patch.web_session_heartbeat_seconds = Number(body.webSessionHeartbeatSeconds);
       }
+      if (body.web_session_heartbeat_seconds != null) {
+        patch.web_session_heartbeat_seconds = Number(body.web_session_heartbeat_seconds);
+      }
       if (body.notifyNewFileToast != null) {
         patch.notify_new_file_toast = !!body.notifyNewFileToast;
       }
@@ -261,6 +287,25 @@ export function setupSettingsEndpoints(app: Hono): void {
       return c.json({ summary });
     } catch (e) {
       return c.json({ error: 'IP özeti alınamadı' }, 500);
+    }
+  });
+
+  app.get('/make-server-47081311/admin/server-health', requireAdmin, async (c) => {
+    try {
+      const health = await getServerHealth();
+      return c.json({ health });
+    } catch (e) {
+      return c.json({ error: 'Sunucu durumu alınamadı' }, 500);
+    }
+  });
+
+  app.get('/make-server-47081311/admin/ip-lookup', requireAdmin, async (c) => {
+    try {
+      const ip = c.req.query('ip') || '';
+      const loc = await resolveIpLocation(ip);
+      return c.json({ location: loc });
+    } catch (e) {
+      return c.json({ error: 'IP sorgusu başarısız' }, 500);
     }
   });
 
@@ -287,7 +332,14 @@ export function setupSettingsEndpoints(app: Hono): void {
         ORDER BY p.last_seen_at DESC
         LIMIT 200
       `;
-      return c.json({ sessions: rows || [] });
+      const { resolveManyIpLocations } = await import('./ip_geolocation.tsx');
+      const ips = (rows || []).map((r: { ip_address: string }) => r.ip_address);
+      const locMap = await resolveManyIpLocations(ips);
+      const sessions = (rows || []).map((r: Record<string, unknown>) => ({
+        ...r,
+        location: locMap.get(String(r.ip_address || ''))?.label || '—',
+      }));
+      return c.json({ sessions });
     } catch (e) {
       return c.json({ error: 'Oturumlar alınamadı' }, 500);
     }

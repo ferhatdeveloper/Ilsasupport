@@ -123,6 +123,24 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'esnext',
       outDir: 'build',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              if (id.includes('/src/components/admin/') || id.includes('\\src\\components\\admin\\')) {
+                return 'admin';
+              }
+              if (id.includes('AdminDashboard')) return 'admin';
+              return;
+            }
+            if (id.includes('recharts')) return 'vendor-charts';
+            if (id.includes('@radix-ui')) return 'vendor-radix';
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('motion')) return 'vendor-motion';
+            return 'vendor';
+          },
+        },
+      },
     },
     /** `npm run build` sonrası `npm run preview:lan` — HMR yok, dış IP ile daha sorunsuz */
     preview: {

@@ -1,8 +1,9 @@
-/**
+﻿/**
  * Hesap ve cihaz giriş onayı — tüm girişler admin onayından geçer.
  */
 import * as db from './db_helpers.tsx';
 import * as kv from './kv_store.tsx';
+import { effectiveMaxSessions } from './subscription_helpers.tsx';
 
 export type LoginGateResult =
   | { allowed: true }
@@ -160,6 +161,15 @@ export async function getLoginDevice(userId: string, hardwareId: string) {
   return rows[0] ?? null;
 }
 
+export async function countApprovedLoginDevices(userId: string): Promise<number> {
+  const s = (await import('./pg_client.ts')).getSql();
+  const rows = await s`
+    SELECT COUNT(*)::int AS c FROM user_login_devices
+    WHERE user_id = ${userId}::uuid AND status = 'approved'
+  `;
+  return Number(rows[0]?.c ?? 0);
+}
+
 export async function getApprovedHardwareId(userId: string): Promise<string | null> {
   const row = await db.getUserById(userId);
   if (row?.registered_hardware_id) return String(row.registered_hardware_id);
@@ -236,6 +246,12 @@ export async function gateElectronLogin(
     return { allowed: true };
   }
 
+  const maxSessions = effectiveMaxSessions({
+    role: row.role,
+    plan: row.plan,
+    maxSessions: userData?.maxSessions as number | undefined,
+  });
+  const approvedCount = await countApprovedLoginDevices(userId);
   const approvedHw = await getApprovedHardwareId(userId);
 
   // İlk kayıtlı cihaz: yönetici onayı olmadan otomatik onaylanır
@@ -245,16 +261,21 @@ export async function gateElectronLogin(
   }
 
   if (approvedHw !== hw) {
+    if (approvedCount < maxSessions) {
+      await approveLoginDevice(userId, hw, deviceInfo ?? { autoMultiDevice: true });
+      return { allowed: true };
+    }
     await upsertPendingLoginDevice(userId, hw, deviceInfo);
     const shortHw = hw.length > 12 ? `${hw.slice(0, 8)}…${hw.slice(-4)}` : hw;
     return {
       allowed: false,
       status: 403,
       error:
-        `Bu hesap başka bir onaylı cihaza bağlıdır. Yönetici panelinde «${shortHw}» cihazını onaylatın.`,
+        `Bu hesap için en fazla ${maxSessions} onaylı cihaz kullanılabilir. Yönetici panelinde «${shortHw}» cihazını onaylatın veya pasif oturumu kapatın.`,
       errorCode: 'HARDWARE_MISMATCH',
       registeredDevice: row.registered_device_info,
       pendingHardwareId: hw,
+      maxSessions,
     };
   }
 
@@ -291,14 +312,36 @@ export async function gateWebLogin(
 
 export async function approveLoginDevice(userId: string, hardwareId: string, deviceInfo?: unknown) {
   const s = (await import('./pg_client.ts')).getSql();
-  // Tek aktif onaylı cihaz: diğer onaylı kayıtlar beklemeye alınır
-  await s`
-    UPDATE user_login_devices
-    SET status = 'pending', approved_at = NULL, updated_at = NOW()
-    WHERE user_id = ${userId}::uuid
-      AND hardware_id != ${hardwareId}
-      AND status = 'approved'
-  `;
+  const userData = (await kv.get(`user:${userId}`)) as { role?: string; plan?: string; maxSessions?: number } | null;
+  const maxSessions = effectiveMaxSessions(userData ?? {});
+  const approvedCount = await countApprovedLoginDevices(userId);
+  const existing = await getLoginDevice(userId, hardwareId);
+  const alreadyApproved = existing?.status === 'approved';
+
+  if (maxSessions <= 1) {
+    await s`
+      UPDATE user_login_devices
+      SET status = 'pending', approved_at = NULL, updated_at = NOW()
+      WHERE user_id = ${userId}::uuid
+        AND hardware_id != ${hardwareId}
+        AND status = 'approved'
+    `;
+  } else if (!alreadyApproved && approvedCount >= maxSessions) {
+    const demote = await s`
+      SELECT hardware_id FROM user_login_devices
+      WHERE user_id = ${userId}::uuid AND status = 'approved' AND hardware_id != ${hardwareId}
+      ORDER BY approved_at ASC NULLS FIRST
+      LIMIT 1
+    `;
+    const oldHw = demote[0]?.hardware_id ? String(demote[0].hardware_id) : null;
+    if (oldHw) {
+      await s`
+        UPDATE user_login_devices
+        SET status = 'pending', approved_at = NULL, updated_at = NOW()
+        WHERE user_id = ${userId}::uuid AND hardware_id = ${oldHw}
+      `;
+    }
+  }
   await s`
     INSERT INTO user_login_devices (user_id, hardware_id, device_info, status, approved_at, last_attempt_at, updated_at)
     VALUES (
@@ -317,12 +360,12 @@ export async function approveLoginDevice(userId: string, hardwareId: string, dev
       device_info = COALESCE(EXCLUDED.device_info, user_login_devices.device_info)
   `;
   await db.registerHardwareId(userId, hardwareId, deviceInfo ?? { approvedByAdmin: true });
-  const userData = await kv.get(`user:${userId}`);
-  if (userData) {
-    userData.hardwareId = hardwareId;
-    userData.registeredDeviceId = hardwareId;
-    userData.registeredAt = new Date().toISOString();
-    await kv.set(`user:${userId}`, userData);
+  const kvUser = await kv.get(`user:${userId}`);
+  if (kvUser) {
+    kvUser.hardwareId = hardwareId;
+    kvUser.registeredDeviceId = hardwareId;
+    kvUser.registeredAt = new Date().toISOString();
+    await kv.set(`user:${userId}`, kvUser);
   }
 }
 

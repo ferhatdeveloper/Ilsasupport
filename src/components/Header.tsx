@@ -4,6 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { SITE_LOGO_SRC } from '../constants/siteAssets';
 import { MembershipBadge } from './MembershipBadge';
 import { CONTACT_MESSENGER_URL } from '../constants/contactLinks';
+import { isAdminUser } from '../utils/membership';
 import '../styles/modern-home.css';
 
 const MESSENGER_ICON_URL = 'https://cdn-icons-png.flaticon.com/512/3621/3621443.png';
@@ -281,7 +282,7 @@ export function Header({
                 </span>
               </button>
             )}
-            {user.role === 'admin' && onShowAdmin && (
+            {isAdminUser(user) && onShowAdmin && (
               <button type="button" className="ilsa-modern-admin-btn" onClick={onShowAdmin}>
                 <Settings size={13} /> YÖNETİM PANELİ
               </button>

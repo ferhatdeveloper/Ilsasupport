@@ -479,7 +479,8 @@ export async function requireAdmin(c: any, next: any) {
     const isCmsWrite =
       path.includes('/admin/cms/hero-slides') ||
       path.includes('/admin/cms/info-pages') ||
-      path.includes('/admin/cms/upload-image');
+      path.includes('/admin/cms/upload-image') ||
+      path.includes('/admin/settings');
 
     if (isCmsWrite) {
       const active = await jwtAuth.verifyAccessTokenActive(accessToken);
@@ -609,8 +610,9 @@ export function setupAdminEndpoints(app: Hono) {
         sum + (u.value.activeSessions || 0), 0
       );
 
-      const { getIpLoginSummary } = await import('./login_audit.tsx');
+      const { getIpLoginSummary, getRecentLoginsWithGeo } = await import('./login_audit.tsx');
       const ipLoginSummary = await getIpLoginSummary(30);
+      const recentLogins = await getRecentLoginsWithGeo(20);
 
       return c.json({
         stats: {
@@ -628,6 +630,7 @@ export function setupAdminEndpoints(app: Hono) {
           activeSessions,
           recentDownloads,
           ipLoginSummary,
+          recentLogins,
         },
       });
     } catch (error) {
@@ -1888,7 +1891,8 @@ export function setupAdminEndpoints(app: Hono) {
       return c.json({ success: true });
     } catch (error) {
       console.error('admin cms hero update:', error);
-      return c.json({ error: 'Slayt güncellenemedi' }, 500);
+      const { message } = postgresErrorDetail(error);
+      return c.json({ error: 'Slayt güncellenemedi', detail: message }, 500);
     }
   });
 
@@ -1901,7 +1905,8 @@ export function setupAdminEndpoints(app: Hono) {
       return c.json({ success: true });
     } catch (error) {
       console.error('admin cms hero delete:', error);
-      return c.json({ error: 'Slayt silinemedi' }, 500);
+      const { message } = postgresErrorDetail(error);
+      return c.json({ error: 'Slayt silinemedi', detail: message }, 500);
     }
   });
 

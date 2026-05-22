@@ -34,6 +34,8 @@ async function main() {
     '04_rpc_and_helpers.sql',
     '09_cms_content.sql',
     '10_cms_pricing.sql',
+    '12_performance_indexes.sql',
+    '20_search_trgm_indexes.sql',
   ];
 
   for (const f of files) {

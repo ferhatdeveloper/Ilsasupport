@@ -39,35 +39,112 @@
   border-radius: 10px;
 }
 
-/* Masaüstü portable indir — açık/koyu temada gri override olmasın */
+/* Masaüstü portable indir — yan yana, eşit yükseklik */
+.ilsa-download-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.ilsa-download-buttons__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  width: 100%;
+  align-items: stretch;
+}
+
+@media (max-width: 420px) {
+  .ilsa-download-buttons__row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ilsa-portable-download-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  flex-wrap: nowrap;
+  gap: 0.35rem 0.5rem;
   width: 100%;
-  padding: 0.75rem 1rem;
+  height: 100%;
+  min-height: 2.85rem;
+  padding: 0.65rem 0.6rem;
   border-radius: 0.5rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
+  text-align: center;
   text-decoration: none !important;
-  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%) !important;
   color: #ffffff !important;
   border: none !important;
-  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  box-sizing: border-box;
   transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
 
-.ilsa-portable-download-btn:hover {
+.ilsa-portable-download-btn--exe {
+  background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%) !important;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+}
+
+.ilsa-portable-download-btn--exe:hover {
   background: linear-gradient(180deg, #f87171 0%, #ef4444 100%) !important;
-  color: #ffffff !important;
   box-shadow: 0 6px 18px rgba(220, 38, 38, 0.45);
+}
+
+.ilsa-portable-download-btn--zip {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+.ilsa-portable-download-btn--zip:hover {
+  background: linear-gradient(180deg, #60a5fa 0%, #3b82f6 100%) !important;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45);
 }
 
 .ilsa-portable-download-btn svg {
   color: #ffffff !important;
   stroke: #ffffff !important;
+  flex-shrink: 0;
+}
+
+.ilsa-download-ver {
+  font-size: 0.7rem;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+.ilsa-download-help-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  font-size: 0.75rem;
+  color: var(--ilsa-muted, #737373);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ilsa-download-help-toggle:hover {
+  text-decoration: underline;
+}
+
+.ilsa-download-help-panel {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ilsa-muted, #525252);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+  padding: 0.65rem 0.75rem;
+}
+
+.ilsa-download-help-panel p + p {
+  margin-top: 0.35rem;
 }
 
 /* Anasayfa ile birebir koyu uyum gereken sayfalar (En Yeniler vb.) */

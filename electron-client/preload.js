@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('ilsaDesktop', {
   checkAppUpdate: () => ipcRenderer.invoke('check-app-update'),
   openDownloadUrl: () => ipcRenderer.invoke('open-download-url'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  getRememberPrefill: () => ipcRenderer.invoke('get-remember-prefill'),
   signin: (credentials) => ipcRenderer.invoke('signin', credentials),
   signup: (userInfo) => ipcRenderer.invoke('signup', userInfo),
   continueInApp: () => ipcRenderer.invoke('continue-in-app'),

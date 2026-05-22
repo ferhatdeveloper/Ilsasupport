@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Image as ImageIcon, FileText, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { apiFunctionsBase, resolveCmsPublicAssetUrl } from '../../utils/supabase/info';
 import { adminFetch } from '../../utils/adminApi';
+import { uploadCmsImage } from './cmsImageUpload';
+import { ImageUploadField } from './ImageUploadField';
 import { useTheme } from '../../contexts/ThemeContext';
 
 type HeroSlide = {
@@ -48,7 +50,9 @@ export function AdminContentPage() {
   const [slideLoading, setSlideLoading] = useState(true);
   const [slideError, setSlideError] = useState('');
   const [slideMsg, setSlideMsg] = useState('');
+  const [slideOpError, setSlideOpError] = useState('');
   const [uploadingSlideId, setUploadingSlideId] = useState<string | null>(null);
+  const [savingSlideId, setSavingSlideId] = useState<string | null>(null);
 
   const [infoPages, setInfoPages] = useState<InfoPage[]>([]);
   const [infoPage, setInfoPage] = useState(1);
@@ -67,10 +71,12 @@ export function AdminContentPage() {
     : 'mt-1 w-full bg-white border border-slate-200 rounded px-3 py-2 text-slate-900';
   const tabActive = 'bg-purple-600 text-white';
   const tabIdle = isDark ? 'bg-gray-800 text-gray-300' : 'bg-slate-100 text-slate-700';
-  const msgClass = isDark
-    ? 'text-sm text-yellow-300 bg-yellow-900/20 border border-yellow-800 rounded p-3'
-    : 'text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-3';
-
+  const okMsgClass = isDark
+    ? 'text-sm text-green-300 bg-green-900/20 border border-green-800 rounded p-3'
+    : 'text-sm text-green-900 bg-green-50 border border-green-200 rounded p-3';
+  const errMsgClass = isDark
+    ? 'text-sm text-red-300 bg-red-900/30 border border-red-800 rounded p-3'
+    : 'text-sm text-red-900 bg-red-50 border border-red-200 rounded p-3';
   const jsonHeaders = { 'Content-Type': 'application/json' };
 
   const parseJsonOrThrow = (raw: string, fallback = 'Geçersiz sunucu yanıtı') => {
@@ -84,7 +90,7 @@ export function AdminContentPage() {
   const loadSlides = useCallback(async () => {
     setSlideLoading(true);
     setSlideError('');
-    setSlideMsg('');
+    setSlideOpError('');
     try {
       const res = await adminFetch(`${apiFunctionsBase}/admin/cms/hero-slides`);
       const data = parseJsonOrThrow(await res.text(), 'Slayt yanıtı JSON değil');
@@ -134,7 +140,8 @@ export function AdminContentPage() {
 
   useEffect(() => {
     void loadSlides();
-  }, [loadSlides]);
+    void loadInfo();
+  }, [loadSlides, loadInfo]);
 
   useEffect(() => {
     if (section === 'info') void loadInfo();
@@ -142,6 +149,8 @@ export function AdminContentPage() {
 
   const saveSlide = async (s: HeroSlide) => {
     setSlideMsg('');
+    setSlideOpError('');
+    setSavingSlideId(s.id);
     try {
       const body = {
         sortOrder: s.sortOrder,
@@ -168,40 +177,28 @@ export function AdminContentPage() {
       await loadSlides();
       setSlideMsg('Kaydedildi.');
     } catch (e: unknown) {
-      setSlideMsg(e instanceof Error ? e.message : String(e));
+      setSlideOpError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingSlideId(null);
     }
   };
 
   const uploadSlideImage = async (slideId: string, file: File) => {
     setSlideMsg('');
+    setSlideOpError('');
     setUploadingSlideId(slideId);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const slide = slides.find((x) => x.id === slideId);
+      if (!slide) throw new Error('Slayt bulunamadı');
 
-      const res = await adminFetch(`${apiFunctionsBase}/admin/cms/upload-image`, {
-        method: 'POST',
-        body: formData,
-      });
+      const imageUrl = await uploadCmsImage(file, 'slide');
 
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        throw new Error(`Upload yanıtı JSON değil: ${text.slice(0, 120)}`);
-      }
-      if (!res.ok) {
-        throw new Error(data.error || 'Görsel yükleme başarısız');
-      }
-      if (!data.imageUrl) {
-        throw new Error('imageUrl dönmedi');
-      }
-
-      updateSlideLocal(slideId, { imageUrl: data.imageUrl });
-      setSlideMsg('Görsel yüklendi. Kaydet ile slayda bağlayın.');
-    } catch (e: any) {
-      setSlideMsg(e?.message || String(e));
+      const updated: HeroSlide = { ...slide, imageUrl };
+      updateSlideLocal(slideId, { imageUrl });
+      await saveSlide(updated);
+      setSlideMsg('Görsel yüklendi ve kaydedildi.');
+    } catch (e: unknown) {
+      setSlideOpError(e instanceof Error ? e.message : String(e));
     } finally {
       setUploadingSlideId(null);
     }
@@ -213,15 +210,17 @@ export function AdminContentPage() {
       return;
     }
     if (!confirm('Bu slaytı silmek istiyor musunuz?')) return;
+    setSlideOpError('');
     try {
       const res = await adminFetch(`${apiFunctionsBase}/admin/cms/hero-slides/${id}`, {
         method: 'DELETE',
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = parseJsonOrThrow(await res.text(), 'Silme yanıtı JSON değil');
+      if (!res.ok) throw new Error([data.error, data.detail].filter(Boolean).join(' — ') || 'Silme hatası');
       await loadSlides();
-    } catch (e: any) {
-      setSlideMsg(e?.message || String(e));
+      setSlideMsg('Slayt silindi.');
+    } catch (e: unknown) {
+      setSlideOpError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -297,7 +296,7 @@ export function AdminContentPage() {
   };
 
   return (
-    <div className={pageClass}>
+    <div className={`flex-1 overflow-y-auto ${pageClass}`}>
       <h1 className="text-2xl font-bold mb-2">Site içeriği</h1>
       <p className={`${mutedClass} mb-6`}>
         Ana sayfa slaytları veritabanından gelir; görsel dosya yüklerseniz{' '}
@@ -326,15 +325,29 @@ export function AdminContentPage() {
 
       {section === 'slides' && (
         <div className="space-y-6">
-          {slideMsg && (
-            <div className={msgClass}>
-              <p>{slideMsg}</p>
-              <button type="button" onClick={() => void loadSlides()} className="mt-2 inline-flex items-center gap-1 text-sm underline">
+          {slideError ? (
+            <div className={errMsgClass}>
+              <p>{slideError}</p>
+              <button
+                type="button"
+                onClick={() => void loadSlides()}
+                className="mt-2 inline-flex items-center gap-1 text-sm underline"
+              >
                 <RefreshCw className="w-4 h-4" />
                 Yeniden dene
               </button>
             </div>
-          )}
+          ) : null}
+          {slideOpError ? (
+            <div className={errMsgClass}>
+              <p>{slideOpError}</p>
+            </div>
+          ) : null}
+          {slideMsg ? (
+            <div className={okMsgClass}>
+              <p>{slideMsg}</p>
+            </div>
+          ) : null}
           <div className="flex justify-between items-center">
             <span className={`${mutedClass} text-sm`}>Sıra, başlık, açıklama, buton ve görsel URL alanlarını doldurun.</span>
             <button
@@ -347,94 +360,89 @@ export function AdminContentPage() {
             </button>
           </div>
           {slideLoading ? (
-            <p className="text-gray-400">Yükleniyor…</p>
+            <p className={mutedClass}>Yükleniyor…</p>
           ) : slides.length === 0 ? (
-            <p className="text-gray-500">Henüz slayt yok. &quot;Slayt ekle&quot; ile oluşturun veya veritabanında cms_hero_slides tablosunu oluşturun.</p>
+            <p className={mutedClass}>
+              Henüz slayt yok. &quot;Slayt ekle&quot; ile oluşturun veya veritabanında cms_hero_slides tablosunu oluşturun.
+            </p>
           ) : (
             slides.map((s) => (
-              <div key={s.id} className="bg-gray-800 border border-gray-700 rounded-xl p-6 space-y-3">
+              <div key={s.id} className={cardClass}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <label className="text-xs text-gray-400 block">
+                  <label className={`text-xs ${mutedClass} block`}>
                     Sıra
                     <input
                       type="number"
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"
+                      className={inputClass}
                       value={s.sortOrder}
                       onChange={(e) => updateSlideLocal(s.id, { sortOrder: parseInt(e.target.value, 10) || 0 })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block">
+                  <label className={`text-xs ${mutedClass} block`}>
                     Gradient (Tailwind)
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                      className={`${inputClass} text-sm`}
                       value={s.gradient}
                       onChange={(e) => updateSlideLocal(s.id, { gradient: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block md:col-span-2">
+                  <label className={`text-xs ${mutedClass} block md:col-span-2`}>
                     Başlık
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"
+                      className={inputClass}
                       value={s.title}
                       onChange={(e) => updateSlideLocal(s.id, { title: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block md:col-span-2">
+                  <label className={`text-xs ${mutedClass} block md:col-span-2`}>
                     Alt başlık
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"
+                      className={inputClass}
                       value={s.subtitle}
                       onChange={(e) => updateSlideLocal(s.id, { subtitle: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block md:col-span-2">
+                  <label className={`text-xs ${mutedClass} block md:col-span-2`}>
                     Açıklama
                     <textarea
                       rows={3}
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"
+                      className={inputClass}
                       value={s.description}
                       onChange={(e) => updateSlideLocal(s.id, { description: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block">
+                  <label className={`text-xs ${mutedClass} block`}>
                     Buton metni
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white"
+                      className={inputClass}
                       value={s.buttonText}
                       onChange={(e) => updateSlideLocal(s.id, { buttonText: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block">
+                  <label className={`text-xs ${mutedClass} block`}>
                     Buton linki (https…)
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                      className={`${inputClass} text-sm`}
                       value={s.buttonUrl}
                       onChange={(e) => updateSlideLocal(s.id, { buttonUrl: e.target.value })}
                     />
                   </label>
-                  <label className="text-xs text-gray-400 block md:col-span-2">
+                  <label className={`text-xs ${mutedClass} block md:col-span-2`}>
                     Görsel URL
                     <input
-                      className="mt-1 w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-white text-sm"
+                      className={`${inputClass} text-sm`}
                       value={s.imageUrl}
                       onChange={(e) => updateSlideLocal(s.id, { imageUrl: e.target.value })}
                       placeholder="/img/slayt/<dosya>.jpg"
                     />
                   </label>
-                  <div className="text-xs text-gray-400 block md:col-span-2">
-                    <span className="block mb-1">
-                      Veya dosya yükle (kayıt: public/img/slayt; uzantı: jpg jpeg png webp gif svg)
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="block w-full text-xs text-gray-300 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-purple-700 file:text-white hover:file:bg-purple-600"
-                      disabled={uploadingSlideId === s.id}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) void uploadSlideImage(s.id, f);
-                        e.currentTarget.value = '';
-                      }}
+                  <div className={`text-xs ${mutedClass} block md:col-span-2`}>
+                    <span className="block mb-1">Veya dosya yükle (hero banner oranında kırpılır)</span>
+                    <ImageUploadField
+                      target="slide"
+                      disabled={uploadingSlideId === s.id || savingSlideId === s.id}
+                      uploading={uploadingSlideId === s.id}
+                      onFileReady={(f) => uploadSlideImage(s.id, f)}
                     />
                   </div>
                   {s.imageUrl ? (
@@ -442,7 +450,7 @@ export function AdminContentPage() {
                       <img
                         src={resolveCmsPublicAssetUrl(s.imageUrl)}
                         alt="Slide preview"
-                        className="w-full max-h-40 object-cover rounded border border-gray-700"
+                        className={`w-full max-h-40 object-cover rounded border ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
                       />
                     </div>
                   ) : null}
@@ -458,12 +466,16 @@ export function AdminContentPage() {
                 <div className="flex gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => saveSlide(s)}
-                    disabled={uploadingSlideId === s.id}
+                    onClick={() => void saveSlide(s)}
+                    disabled={uploadingSlideId === s.id || savingSlideId === s.id}
                     className="flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
                   >
                     <Save className="w-4 h-4" />
-                    {uploadingSlideId === s.id ? 'Yükleniyor...' : 'Kaydet'}
+                    {uploadingSlideId === s.id
+                      ? 'Görsel yükleniyor…'
+                      : savingSlideId === s.id
+                        ? 'Kaydediliyor…'
+                        : 'Kaydet'}
                   </button>
                   <button
                     type="button"
@@ -482,15 +494,24 @@ export function AdminContentPage() {
 
       {section === 'info' && (
         <div className="space-y-6">
-          {infoMsg && (
-            <div className={msgClass}>
-              <p>{infoMsg}</p>
-              <button type="button" onClick={() => void loadInfo()} className="mt-2 inline-flex items-center gap-1 text-sm underline">
+          {infoError ? (
+            <div className={errMsgClass}>
+              <p>{infoError}</p>
+              <button
+                type="button"
+                onClick={() => void loadInfo()}
+                className="mt-2 inline-flex items-center gap-1 text-sm underline"
+              >
                 <RefreshCw className="w-4 h-4" />
                 Yeniden dene
               </button>
             </div>
-          )}
+          ) : null}
+          {infoMsg ? (
+            <div className={okMsgClass}>
+              <p>{infoMsg}</p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap justify-between gap-3 items-center">
             <p className={`${mutedClass} text-sm`}>
               Liste tarihe göre yeniden eskiye (DESC) sayfalanır. Açıklama alanı uzun metin içindir.

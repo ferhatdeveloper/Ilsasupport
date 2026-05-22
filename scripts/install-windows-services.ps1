@@ -68,6 +68,10 @@ function Install-WinSWService {
   Write-Host "[OK] Servis kuruldu: $ServiceId"
 }
 
+# Redis + RabbitMQ (Windows servisi)
+& (Join-Path $PSScriptRoot 'install-redis-service.ps1')
+& (Join-Path $PSScriptRoot 'install-rabbitmq-service.ps1')
+
 # On kosullar
 if (-not (Test-Path $caddyExe)) { & (Join-Path $PSScriptRoot 'install-caddy.ps1') }
 if (-not (Test-Path $denoUser)) { throw "Deno yok: $denoUser" }

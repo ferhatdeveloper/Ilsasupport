@@ -3,6 +3,7 @@ import { TrendingUp, Users, FileText, Download, Database, Activity } from 'lucid
 import { apiFunctionsBase } from '../../utils/supabase/info';
 import { adminFetch } from '../../utils/adminApi';
 import { useAdminPageLoad } from '../../hooks/useAdminPageLoad';
+import { AdminServerHealth } from './AdminServerHealth';
 
 export function AdminStatsPage() {
   const [stats, setStats] = useState<any>(null);
@@ -77,7 +78,7 @@ export function AdminStatsPage() {
       </div>
 
       {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-8">
         <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-lg p-6 border border-purple-500">
           <div className="flex items-center justify-between mb-4">
             <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
@@ -128,6 +129,26 @@ export function AdminStatsPage() {
             {s.totalCategories || 0}
           </div>
           <div className="text-orange-200 text-sm">Kategori</div>
+        </div>
+
+        <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-lg p-6 border border-emerald-500">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-emerald-200 text-sm">Şimdi</span>
+          </div>
+          <div className="text-3xl text-white mb-1">
+            {s.onlineUsers ?? 0}
+          </div>
+          <div className="text-emerald-200 text-sm">
+            Çevrimiçi kullanıcı
+            {(s.onlineConnections ?? 0) > 0 && (
+              <span className="block text-emerald-300/80 text-xs mt-0.5">
+                {s.onlineConnections} aktif bağlantı
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -225,7 +246,14 @@ export function AdminStatsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-gray-400">
                 <Activity className="w-4 h-4" />
-                <span>Aktif Oturumlar</span>
+                <span>Çevrimiçi kullanıcı</span>
+              </div>
+              <span className="text-emerald-400 font-medium">{s.onlineUsers ?? 0}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-gray-400">
+                <Users className="w-4 h-4" />
+                <span>Kayıtlı oturum sayısı (KV)</span>
               </div>
               <span className="text-white">{s.activeSessions || 0}</span>
             </div>
@@ -247,6 +275,8 @@ export function AdminStatsPage() {
         </div>
       </div>
 
+      <AdminServerHealth />
+
       {/* Aynı IP — birden fazla hesap */}
       <div className="bg-gray-800 border border-amber-700/50 rounded-lg p-6 mb-8">
         <h3 className="text-lg text-white mb-2">Aynı IP adresinden giriş yapanlar</h3>
@@ -259,7 +289,8 @@ export function AdminStatsPage() {
               <thead>
                 <tr className="text-gray-500 border-b border-gray-700">
                   <th className="py-2 pr-4">IP</th>
-                  <th className="py-2 pr-4">Hesap sayısı</th>
+                  <th className="py-2 pr-4">Konum</th>
+                  <th className="py-2 pr-4">Hesap</th>
                   <th className="py-2 pr-4">Kullanıcılar</th>
                   <th className="py-2">Son giriş</th>
                 </tr>
@@ -268,6 +299,9 @@ export function AdminStatsPage() {
                 {s.ipLoginSummary.map((row: any) => (
                   <tr key={row.ipAddress} className="border-b border-gray-700/50">
                     <td className="py-2 pr-4 font-mono text-xs text-amber-200">{row.ipAddress}</td>
+                    <td className="py-2 pr-4 text-xs text-gray-300 max-w-[220px]">
+                      {row.location || row.city || '—'}
+                    </td>
                     <td className="py-2 pr-4">{row.userCount}</td>
                     <td className="py-2 pr-4">{(row.usernames || []).join(', ') || '—'}</td>
                     <td className="py-2">
@@ -280,6 +314,45 @@ export function AdminStatsPage() {
           </div>
         ) : (
           <p className="text-gray-500 text-sm">Şu an uyarı verilecek IP çakışması yok.</p>
+        )}
+      </div>
+
+      {/* Son girişler + konum */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-8">
+        <h3 className="text-lg text-white mb-4">Son girişler (IP konumu)</h3>
+        {s.recentLogins && s.recentLogins.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left text-gray-300">
+              <thead>
+                <tr className="text-gray-500 border-b border-gray-700">
+                  <th className="py-2 pr-3">Zaman</th>
+                  <th className="py-2 pr-3">Kullanıcı</th>
+                  <th className="py-2 pr-3">IP</th>
+                  <th className="py-2 pr-3">Konum</th>
+                  <th className="py-2">Kanal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.recentLogins.map((row: any) => (
+                  <tr key={row.id} className="border-b border-gray-700/50">
+                    <td className="py-2 pr-3 text-xs whitespace-nowrap">
+                      {new Date(row.createdAt).toLocaleString('tr-TR')}
+                    </td>
+                    <td className="py-2 pr-3">{row.username || '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{row.ipAddress}</td>
+                    <td className="py-2 pr-3 text-xs max-w-[200px]">{row.location}</td>
+                    <td className="py-2 text-xs">
+                      <span className={row.success ? 'text-green-400' : 'text-red-400'}>
+                        {row.channel} {row.success ? '✓' : '✗'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-500 text-sm">Henüz giriş kaydı yok.</p>
         )}
       </div>
 

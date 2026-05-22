@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchPublicSiteSettings } from '../utils/siteSettingsClient';
-import { setStoredWebPresenceKey } from '../hooks/useWebPresence';
+import { webSignIn } from '../utils/webRememberMe';
 import { Shield, User, Lock, Sun, Moon } from 'lucide-react';
 import { LoginSignInColumn } from './LoginSignInColumn';
 import { apiFunctionsBase } from '../utils/supabase/info';
@@ -38,37 +37,20 @@ export function LoginPage({ onSignIn, allowWebSignIn = false }: LoginPageProps) 
     setSessionError({ show: false, username: '', password: '' });
 
     try {
-      const response = await fetch(
-        `${apiFunctionsBase}/signin`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            username: sessionError.username, 
-            password: sessionError.password,
-            forceLogin: true // Tüm eski session'ları sil
-          }),
-        }
-      );
+      const { getWebRememberPrefill } = await import('../utils/webRememberMe');
+      const pre = getWebRememberPrefill();
+      const result = await webSignIn({
+        username: sessionError.username,
+        password: sessionError.password,
+        forceLogin: true,
+        rememberMe: pre.enabled,
+      });
 
-      const data = await readResponseJson<{
-        error?: string;
-        accessToken?: string;
-        user?: unknown;
-        webPresenceKey?: string;
-      }>(response);
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Giriş başarısız');
-      }
-      if (!data.accessToken || !data.user) {
-        throw new Error(data.error || 'Sunucudan geçersiz yanıt (API çalışıyor mu?)');
+      if (!result.ok || !result.accessToken || !result.user) {
+        throw new Error(result.error || 'Giriş başarısız');
       }
 
-      persistWebPresence(data);
-      onSignIn(data.accessToken, data.user);
+      onSignIn(result.accessToken, result.user);
     } catch (err: any) {
       setError(err.message || 'Force login başarısız');
     } finally {

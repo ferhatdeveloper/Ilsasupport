@@ -5,6 +5,7 @@ import type { Hono } from 'npm:hono';
 import * as jwtAuth from './auth_jwt.tsx';
 import * as security from './security_middleware.tsx';
 import { getSql } from './pg_client.ts';
+import { getFileById } from './postgresql_helpers.tsx';
 
 async function resolveUserId(c: any): Promise<string | null> {
   const accessToken = c.req.header('Authorization')?.split(' ')[1];
@@ -39,14 +40,8 @@ async function resolveUserId(c: any): Promise<string | null> {
       const active = await jwtAuth.verifyAccessTokenActive(accessToken);
       if (active) return active.sub;
     } else {
-      const rotated = await jwtAuth.verifyAndRotateAccessToken(accessToken, {
-        ipAddress: c.req.header('x-forwarded-for') || c.req.header('cf-connecting-ip') || undefined,
-        userAgent: c.req.header('user-agent') || undefined,
-      });
-      if (rotated.ok) {
-        c.header('X-New-Access-Token', rotated.newToken);
-        return rotated.sub;
-      }
+      const active = await jwtAuth.verifyAccessTokenActive(accessToken);
+      if (active) return active.sub;
     }
   }
 
@@ -74,14 +69,34 @@ export function setupUserFeaturesEndpoints(app: Hono) {
         WHERE user_id = ${userId}::uuid
         ORDER BY created_at DESC
       `;
+
+      const favorites = await Promise.all(
+        rows.map(async (r: {
+          file_id: string;
+          file_name: string | null;
+          file_meta: unknown;
+          created_at: string;
+        }) => {
+          const meta =
+            r.file_meta && typeof r.file_meta === 'object' && !Array.isArray(r.file_meta)
+              ? (r.file_meta as Record<string, unknown>)
+              : {};
+          const file = await getFileById(String(r.file_id));
+          return {
+            fileId: String(r.file_id),
+            fileName: r.file_name || file?.name || null,
+            meta,
+            driveFileId: file?.driveFileId ?? null,
+            googleDriveLink: file?.googleDriveLink ?? '',
+            driveWebViewUrl: file?.driveWebViewUrl ?? '',
+            createdAt: r.created_at,
+          };
+        }),
+      );
+
       return c.json({
-        favorites: rows.map((r: { file_id: string; file_name: string | null; file_meta: unknown; created_at: string }) => ({
-          fileId: r.file_id,
-          fileName: r.file_name,
-          meta: r.file_meta,
-          createdAt: r.created_at,
-        })),
-        fileIds: rows.map((r: { file_id: string }) => String(r.file_id)),
+        favorites,
+        fileIds: favorites.map((f) => f.fileId),
       });
     } catch (e) {
       console.error('favorites GET:', e);

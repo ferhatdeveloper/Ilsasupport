@@ -12,6 +12,7 @@ const {
   signApiRequest,
 } = require('./device_keys');
 const { startSignProxy } = require('./sign_proxy');
+const rememberAuth = require('./remember_auth');
 
 function loadConfig() {
   const p = path.join(__dirname, 'config.json');
@@ -632,7 +633,7 @@ async function openWebApp(secureToken, hardwareId, userFromSignin) {
   }
 }
 
-ipcMain.handle('signin', async (_event, { username, password }) => {
+async function performElectronSignin(username, password) {
   const hardwareId = getHardwareId();
   const apiBase = config.apiBase.replace(/\/$/, '');
   const user = String(username || '').trim().toLowerCase();
@@ -685,43 +686,9 @@ ipcMain.handle('signin', async (_event, { username, password }) => {
     void reportElectronClientError({ username: user, message: errMsg, errorCode: 'SIGNIN_EXCEPTION' });
     return { success: false, error: errMsg };
   }
-});
+}
 
-ipcMain.handle('continue-in-app', async () => {
-  if (!pendingLogin) {
-    return { success: false, error: 'Oturum bulunamadı. Lütfen yeniden giriş yapın.' };
-  }
-  try {
-    const session = await withTimeout(
-      ensurePendingBootstrapped(),
-      30000,
-      'Oturum hazırlanırken zaman aşımı.',
-    );
-    await withTimeout(
-      openWebApp(session.secureToken, session.hardwareId, session.user),
-      45000,
-      'Site penceresi açılırken zaman aşımı. İnternet bağlantınızı kontrol edin.',
-    );
-    clearPendingLogin();
-    closeLoginWindow();
-    return { success: true };
-  } catch (e) {
-    console.error('continue-in-app:', e);
-    focusLoginWindow();
-    const msg = String(e.message || 'Site açılamadı');
-    if (msg.includes('TOKEN_INVALID') || msg.includes('zaten kullanıldı')) {
-      clearPendingLogin();
-      return {
-        success: false,
-        error: 'Oturum kodu kullanıldı. Lütfen giriş penceresinden tekrar giriş yapın.',
-        errorCode: 'TOKEN_INVALID',
-      };
-    }
-    return { success: false, error: msg, errorCode: e.errorCode };
-  }
-});
-
-ipcMain.handle('continue-in-browser', async () => {
+async function performContinueInBrowser() {
   if (!pendingLogin) {
     return { success: false, error: 'Oturum bulunamadı. Lütfen yeniden giriş yapın.' };
   }
@@ -765,7 +732,7 @@ ipcMain.handle('continue-in-browser', async () => {
       }
       return {
         success: false,
-        error: `Tarayıcı otomatik açılamadı. Bağlantı panoya kopyalandı — tarayıcıya yapıştırın (Ctrl+V):\n${handoffUrl}`,
+        error: `Tarayıcı otomatik açılamadı. Bağlantı panoya kopyalandı:\n${handoffUrl}`,
         handoffUrl,
       };
     }
@@ -774,8 +741,7 @@ ipcMain.handle('continue-in-browser', async () => {
     app.quit();
     return { success: true, handoffUrl };
   } catch (e) {
-    console.error('continue-in-browser:', e);
-    focusLoginWindow();
+    console.error('performContinueInBrowser:', e);
     const msg = String(e.message || 'Tarayıcı açılamadı');
     if (msg.includes('TOKEN_INVALID') || msg.includes('zaten kullanıldı')) {
       clearPendingLogin();
@@ -787,6 +753,72 @@ ipcMain.handle('continue-in-browser', async () => {
     }
     return { success: false, error: msg, errorCode: e.errorCode };
   }
+}
+
+async function tryRememberedAutoLogin() {
+  const creds = rememberAuth.loadRemembered();
+  if (!creds?.username || !creds?.password) return false;
+  const sign = await performElectronSignin(creds.username, creds.password);
+  if (!sign.success) {
+    rememberAuth.clearRemembered();
+    return false;
+  }
+  const browser = await performContinueInBrowser();
+  return !!browser.success;
+}
+
+ipcMain.handle('get-remember-prefill', async () => rememberAuth.getRememberPrefill());
+
+ipcMain.handle('signin', async (_event, { username, password, rememberMe }) => {
+  const result = await performElectronSignin(username, password);
+  if (result.success) {
+    if (rememberMe) {
+      rememberAuth.saveRemembered(username, password);
+    } else {
+      rememberAuth.clearRemembered();
+    }
+  }
+  return result;
+});
+
+ipcMain.handle('continue-in-app', async () => {
+  if (!pendingLogin) {
+    return { success: false, error: 'Oturum bulunamadı. Lütfen yeniden giriş yapın.' };
+  }
+  try {
+    const session = await withTimeout(
+      ensurePendingBootstrapped(),
+      30000,
+      'Oturum hazırlanırken zaman aşımı.',
+    );
+    await withTimeout(
+      openWebApp(session.secureToken, session.hardwareId, session.user),
+      45000,
+      'Site penceresi açılırken zaman aşımı. İnternet bağlantınızı kontrol edin.',
+    );
+    clearPendingLogin();
+    closeLoginWindow();
+    return { success: true };
+  } catch (e) {
+    console.error('continue-in-app:', e);
+    focusLoginWindow();
+    const msg = String(e.message || 'Site açılamadı');
+    if (msg.includes('TOKEN_INVALID') || msg.includes('zaten kullanıldı')) {
+      clearPendingLogin();
+      return {
+        success: false,
+        error: 'Oturum kodu kullanıldı. Lütfen giriş penceresinden tekrar giriş yapın.',
+        errorCode: 'TOKEN_INVALID',
+      };
+    }
+    return { success: false, error: msg, errorCode: e.errorCode };
+  }
+});
+
+ipcMain.handle('continue-in-browser', async () => {
+  const result = await performContinueInBrowser();
+  if (!result.success) focusLoginWindow();
+  return result;
 });
 
 ipcMain.handle('signup', async (_event, { username, password, name }) => {
@@ -848,6 +880,9 @@ app.whenReady().then(async () => {
   pendingUpdateInfo = ver;
   if (!ver.ok && ver.updateRequired) {
     createUpdateWindow(ver);
+    return;
+  }
+  if (await tryRememberedAutoLogin()) {
     return;
   }
   createLoginWindow();

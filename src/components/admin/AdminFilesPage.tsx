@@ -182,6 +182,8 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
   const [panelMode, setPanelMode] = useState<PanelMode>('idle');
   const [selectedFile, setSelectedFile] = useState<AdminBilgiFile | null>(null);
   const [formData, setFormData] = useState<BilgiFormData>(EMPTY_FORM);
+  /** Kategori seçicilerinin iç durumunu sıfırlamak için (kayıt sonrası temiz form) */
+  const [formSessionKey, setFormSessionKey] = useState(0);
   const [formDirty, setFormDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const editorPanelRef = useRef<HTMLDivElement>(null);
@@ -378,33 +380,20 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
         }),
       });
 
-      const body = (await response.json().catch(() => ({}))) as { file?: Record<string, unknown> };
+      await response.json().catch(() => ({}));
 
       if (response.ok) {
-        toast.success(isCreate ? 'Bilgi kaydı eklendi' : 'Kayıt güncellendi');
+        toast.success(
+          isCreate ? 'Bilgi kaydı eklendi — form temizlendi, yeni kayıt ekleyebilirsiniz' : 'Kayıt güncellendi',
+        );
         setFormDirty(false);
         await loadFiles();
         if (isCreate) {
-          const row = body.file;
-          const newId = row?.id != null ? String(row.id) : null;
-          if (newId) {
-            const created: AdminBilgiFile = {
-              id: newId,
-              name: formData.name,
-              downloadUrl: formData.downloadUrl,
-              categoryId: formData.categoryId,
-              categoryName: categories.find((c) => c.id === formData.categoryId)?.name ?? '—',
-              downloadCount: Number(row?.down) || 0,
-              altkat: formData.altkat,
-              boyutRaw: formData.boyut,
-              createdAt: String(row?.tarih ?? new Date().toISOString()),
-            };
-            setPanelMode('edit');
-            setSelectedFile(created);
-            setFormData(fileToForm(created));
-          } else {
-            openCreate();
-          }
+          setPanelMode('create');
+          setSelectedFile(null);
+          setFormData({ ...EMPTY_FORM });
+          setFormSessionKey((k) => k + 1);
+          scrollToEditor();
         } else if (selectedFile) {
           const updated: AdminBilgiFile = {
             ...selectedFile,
@@ -563,6 +552,7 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
               Listeye dön
             </button>
             <BilgiEditorPanel
+              key={formSessionKey}
               mode={panelMode === 'create' ? 'create' : 'edit'}
               file={selectedFile}
               formData={formData}

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { apiFunctionsBase } from './utils/supabase/info';
 import { LoginPage } from './components/LoginPage';
 import { HomePage } from './components/HomePage';
-import { AdminDashboard } from './components/AdminDashboard';
+const AdminDashboard = lazy(() =>
+  import('./components/AdminDashboard').then((m) => ({ default: m.AdminDashboard })),
+);
 import { ThemeProvider } from './contexts/ThemeContext';
 import { SeoHead } from './components/SeoHead';
 import { SEO_DEFAULT_DESCRIPTION, SEO_SITE_NAME } from './constants/seoDefaults';
@@ -41,6 +43,8 @@ import { SubscriptionExpiryToasts } from './components/SubscriptionExpiryToasts'
 import { useWebPresence, setStoredWebPresenceKey } from './hooks/useWebPresence';
 import { useNewFileToast } from './hooks/useNewFileToast';
 import { fetchPublicSiteSettings } from './utils/siteSettingsClient';
+import { tryWebRememberSignIn } from './utils/webRememberMe';
+import { isAdminUser } from './utils/membership';
 
 export default function App() {
   return (
@@ -59,7 +63,7 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'home' | 'admin'>('home');
   const [secureMode, setSecureMode] = useState(false); // Secure token sistemi aktif mi?
-  const [heartbeatSec, setHeartbeatSec] = useState(45);
+  const [heartbeatSec, setHeartbeatSec] = useState(90);
 
   useEffect(() => {
     void fetchPublicSiteSettings().then((s) => setHeartbeatSec(s.webSessionHeartbeatSeconds));
@@ -119,6 +123,24 @@ function AppContent() {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  /** Masaüstü oturumundan yönetim paneli: profile-secure ile JWT al */
+  useEffect(() => {
+    if (view !== 'admin' || !user || !isAdminUser(user)) return;
+    if (getStoredJwtAccessToken() || (accessToken && isJwtAccessToken(accessToken))) return;
+    if (!hasValidToken()) return;
+    let cancelled = false;
+    void (async () => {
+      installSignedFetchBridge();
+      const hydrated = await hydrateSecureSession();
+      if (cancelled || !hydrated) return;
+      if (hydrated.accessToken) setAccessToken(hydrated.accessToken);
+      if (hydrated.user) setUser(hydrated.user);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [view, user, accessToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -404,7 +426,18 @@ function AppContent() {
         }
       }
 
-      console.log('ℹ️ Aktif session bulunamadı, giriş sayfası gösteriliyor');
+      const remembered = await tryWebRememberSignIn();
+      if (remembered?.accessToken && remembered.user) {
+        setAccessToken(remembered.accessToken);
+        setStoredJwtAccessToken(remembered.accessToken);
+        setUser(remembered.user);
+        localStorage.setItem('user', JSON.stringify(remembered.user));
+        console.log('✅ Beni hatırla ile otomatik web girişi');
+        setLoading(false);
+        return;
+      }
+
+      console.log('ℹ️ Aktif session bulunamadı');
     } catch (error) {
       console.error('❌ Session kontrol hatası:', error);
       clearStoredJwtAccessToken();
@@ -489,8 +522,7 @@ function AppContent() {
       );
     }
     
-    const isAdmin = user.role === 'admin' || user.plan === 'admin';
-    if (!isAdmin) {
+    if (!isAdminUser(user)) {
       // Admin değil
       return (
         <>
@@ -521,30 +553,11 @@ function AppContent() {
       return (
         <>
           <SeoHead
-            title={`Oturum hazırlanıyor — ${SEO_SITE_NAME}`}
-            description="Yönetim paneli oturumu yükleniyor."
+            title={`Yönetici girişi — ${SEO_SITE_NAME}`}
+            description="ILSA Support yönetim paneli için web oturumu açın."
             noindex
           />
-          <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-purple-900 to-pink-900">
-            <div className="text-center bg-gray-800 p-8 rounded-lg max-w-md">
-              <div className="text-6xl mb-4">⏳</div>
-              <h2 className="text-white text-2xl mb-4">Yönetici girişi gerekli</h2>
-              <p className="text-gray-400 mb-6">
-                Yönetim paneli için web üzerinden admin hesabıyla giriş yapın (masaüstü oturumu yeterli değildir).
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  clearStoredJwtAccessToken();
-                  setAccessToken(null);
-                  setUser(null);
-                }}
-                className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-              >
-                Giriş sayfasına git
-              </button>
-            </div>
-          </div>
+          <LoginPage onSignIn={handleSignIn} allowWebSignIn />
         </>
       );
     }
@@ -558,7 +571,9 @@ function AppContent() {
           path="/?view=admin"
         />
         <SubscriptionExpiryToasts user={user} />
-        <AdminDashboard user={user} onSignOut={handleSignOut} onGoHome={goToHomeView} />
+        <Suspense fallback={<div className="p-8 text-center text-slate-500">Yönetim paneli yükleniyor…</div>}>
+          <AdminDashboard user={user} onSignOut={handleSignOut} onGoHome={goToHomeView} />
+        </Suspense>
       </>
     );
   }

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Lock, User, Monitor } from 'lucide-react';
-import { apiFunctionsBase } from '../utils/supabase/info';
-import { readResponseJson } from '../utils/readResponseJson';
 import { DesktopAppDownload } from './DesktopAppDownload';
 import { fetchPublicSiteSettings } from '../utils/siteSettingsClient';
-import { setStoredWebPresenceKey } from '../hooks/useWebPresence';
+import { getWebRememberPrefill, webSignIn } from '../utils/webRememberMe';
+import { WebRememberMeCheckbox } from './WebRememberMeCheckbox';
 
 const ENV_ALLOW_WEB =
   import.meta.env.VITE_REQUIRE_ELECTRON_LOGIN === 'false' ||
@@ -40,9 +39,15 @@ export function LoginSignInColumn({
   onSignIn,
 }: LoginSignInColumnProps) {
   const [loginMode, setLoginMode] = useState<'electron_only' | 'web_allowed'>('electron_only');
+  const [rememberMe, setRememberMe] = useState(true);
+
   useEffect(() => {
     void fetchPublicSiteSettings().then((s) => setLoginMode(s.loginMode));
+    const pre = getWebRememberPrefill();
+    if (pre.username && !username) setUsername(pre.username);
+    setRememberMe(pre.enabled);
   }, []);
+
   const showWebSignIn = allowWebSignIn || loginMode === 'web_allowed' || ENV_ALLOW_WEB;
 
   return (
@@ -80,36 +85,26 @@ export function LoginSignInColumn({
               setSessionError({ show: false, username: '', password: '' });
               setLoading(true);
               try {
-                const response = await fetch(`${apiFunctionsBase}/signin`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ username, password, forceLogin: false }),
+                const result = await webSignIn({
+                  username,
+                  password,
+                  forceLogin: false,
+                  rememberMe,
                 });
-                const data = await readResponseJson<{
-                  error?: string;
-                  errorCode?: string;
-                  accessToken?: string;
-                  user?: unknown;
-                  webPresenceKey?: string;
-                }>(response);
-                if (!response.ok) {
-                  if (data.error?.includes('maksimum') || data.error?.includes('limit')) {
+                if (!result.ok) {
+                  if (result.error?.includes('maksimum') || result.error?.includes('limit')) {
                     setSessionError({ show: true, username, password });
                     return;
                   }
                   if (
-                    data.errorCode === 'LOGIN_PENDING_APPROVAL' ||
-                    data.errorCode === 'DEVICE_PENDING_APPROVAL'
+                    result.errorCode === 'LOGIN_PENDING_APPROVAL' ||
+                    result.errorCode === 'DEVICE_PENDING_APPROVAL'
                   ) {
-                    throw new Error(data.error || 'Giriş için yönetici onayı gerekli');
+                    throw new Error(result.error || 'Giriş için yönetici onayı gerekli');
                   }
-                  throw new Error(data.error || 'Giriş başarısız');
+                  throw new Error(result.error || 'Giriş başarısız');
                 }
-                if (!data.accessToken || !data.user) {
-                  throw new Error('Sunucudan geçersiz yanıt');
-                }
-                if (data.webPresenceKey) setStoredWebPresenceKey(data.webPresenceKey);
-                onSignIn(data.accessToken, data.user);
+                onSignIn(result.accessToken!, result.user);
               } catch (err: unknown) {
                 setError(err instanceof Error ? err.message : 'Giriş başarısız');
               } finally {
@@ -148,6 +143,7 @@ export function LoginSignInColumn({
                 />
               </div>
             </div>
+            <WebRememberMeCheckbox checked={rememberMe} onChange={setRememberMe} className="mb-1" />
             <button
               type="submit"
               disabled={loading}

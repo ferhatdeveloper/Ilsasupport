@@ -120,6 +120,14 @@ function setupOptionalUpdateBanner() {
 setupOptionalUpdateBanner();
 
 (async () => {
+  const pref = await window.ilsaDesktop.getRememberPrefill?.();
+  if (pref?.username) {
+    $('signin-user').value = pref.username;
+    if ($('remember-me')) $('remember-me').checked = !!pref.hasRemember;
+  }
+})();
+
+(async () => {
   const ver = await window.ilsaDesktop.getAppVersion?.();
   const hw = await window.ilsaDesktop.getHardwareId?.();
   const note = document.querySelector('.hw-note');
@@ -141,12 +149,27 @@ $('form-signin').addEventListener('submit', async (e) => {
   btn.disabled = true;
   btn.textContent = 'Giriş yapılıyor…';
 
+  const rememberMe = !!$('remember-me')?.checked;
   const result = await window.ilsaDesktop.signin({
     username: $('signin-user').value.trim().toLowerCase(),
     password: $('signin-pass').value,
+    rememberMe,
   });
 
   if (result.success && result.needsContinueChoice) {
+    if (rememberMe) {
+      showMsg('success', 'Site tarayıcıda açılıyor…');
+      const cont = await invokeContinue(
+        () => window.ilsaDesktop.continueInBrowser(),
+        'Tarayıcı',
+      );
+      if (cont.success) return;
+      showMsg('error', cont.error || 'Tarayıcı açılamadı');
+      showContinueChoice(result.user);
+      btn.disabled = false;
+      btn.textContent = 'Giriş yap';
+      return;
+    }
     showMsg('success', 'Tarayıcıdan devam et ile siteyi açın.');
     showContinueChoice(result.user);
     btn.disabled = true;

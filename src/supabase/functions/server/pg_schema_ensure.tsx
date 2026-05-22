@@ -248,3 +248,33 @@ export async function ensureFavoritesAndRequestsSchema(): Promise<void> {
     console.warn('[schema] ensureFavoritesAndRequestsSchema:', d.code, d.message);
   }
 }
+
+/** Arama sorguları için pg_trgm indeksleri (TRANSLATE+LOWER ifadesi ile uyumlu) */
+export async function ensureSearchTrgmIndexes(): Promise<void> {
+  const s = getSql();
+  try {
+    await s.unsafe('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+    await s.unsafe(`
+      CREATE INDEX IF NOT EXISTS idx_bilgi_search_norm_trgm ON bilgi USING gin (
+        REPLACE(
+          LOWER(TRANSLATE(COALESCE(adi, ''), 'İIıŞşĞğÜüÖöÇç', 'iiisSGgUuOoCc')),
+          'i̇',
+          'i'
+        ) gin_trgm_ops
+      )
+    `);
+    await s.unsafe(`
+      CREATE INDEX IF NOT EXISTS idx_kategoriler_search_norm_trgm ON kategoriler USING gin (
+        REPLACE(
+          LOWER(TRANSLATE(COALESCE(kategori_adi, ''), 'İIıŞşĞğÜüÖöÇç', 'iiisSGgUuOoCc')),
+          'i̇',
+          'i'
+        ) gin_trgm_ops
+      )
+    `);
+    console.log('[schema] arama trgm indeksleri hazır');
+  } catch (e) {
+    const d = postgresErrorDetail(e);
+    console.warn('[schema] ensureSearchTrgmIndexes:', d.code, d.message);
+  }
+}

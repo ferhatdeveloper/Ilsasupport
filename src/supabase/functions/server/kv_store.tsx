@@ -21,7 +21,7 @@ function deriveUsernameForPg(id: string, value: any): string {
 function rowToKvUser(row: any): any {
   const lp = (row.legacy_profile && typeof row.legacy_profile === 'object') ? row.legacy_profile : {};
   const plan = row.plan || 'free';
-  const isAdmin = row.role === 'admin';
+  const isAdmin = row.role === 'admin' || plan === 'admin';
   const username =
     row.username != null && String(row.username).trim()
       ? normalizeLoginUsername(String(row.username))
@@ -31,8 +31,8 @@ function rowToKvUser(row: any): any {
     username,
     email: row.email ?? null,
     name: row.name,
-    role: lp.kvRole ?? (isAdmin ? 'admin' : 'free'),
-    plan: lp.kvPlan ?? (isAdmin ? 'admin' : plan),
+    role: isAdmin ? 'admin' : (lp.kvRole ?? row.role ?? 'user'),
+    plan: isAdmin ? (lp.kvPlan ?? 'admin') : (lp.kvPlan ?? plan),
     maxSessions: lp.maxSessions ?? (isAdmin ? 10 : plan === 'premium' ? 3 : 1),
     downloadLimit: lp.downloadLimit ?? (plan === 'premium' || isAdmin ? -1 : 5),
     createdAt: row.created_at,

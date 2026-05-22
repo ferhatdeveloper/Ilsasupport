@@ -3,6 +3,8 @@ import { useAdminPageLoad } from '../../hooks/useAdminPageLoad';
 import { Save, Trash2, ChevronUp, ChevronDown, RotateCcw, ImagePlus, Plus } from 'lucide-react';
 import { apiFunctionsBase, resolveCmsPublicAssetUrl } from '../../utils/supabase/info';
 import { adminFetch } from '../../utils/adminApi';
+import { uploadCmsImage } from './cmsImageUpload';
+import { ImageUploadField } from './ImageUploadField';
 import {
   DEFAULT_PRICING_PAGE_PAYLOAD,
   addPlanToTableSections,
@@ -35,22 +37,8 @@ export function AdminPricingPage() {
     setMsg('');
     setUploadingPlanIndex(planIndex);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await adminFetch(`${apiFunctionsBase}/admin/cms/upload-image`, {
-        method: 'POST',
-        body: formData,
-      });
-      const text = await res.text();
-      let data: { imageUrl?: string; error?: string } = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        throw new Error(`Yanıt JSON değil: ${text.slice(0, 120)}`);
-      }
-      if (!res.ok) throw new Error(data.error || 'Görsel yüklenemedi');
-      if (!data.imageUrl) throw new Error('imageUrl dönmedi');
-      updatePlan(planIndex, { imageUrl: data.imageUrl });
+      const imageUrl = await uploadCmsImage(file, 'pricing');
+      updatePlan(planIndex, { imageUrl });
       setMsg('Görsel yüklendi. Paketi kaydetmeyi unutmayın.');
     } catch (e: unknown) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -347,18 +335,12 @@ export function AdminPricingPage() {
               ) : (
                 <p className="text-xs text-gray-500 mb-2">Henüz görsel yok — dosya seçin veya Kaydet öncesi yükleyin.</p>
               )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,.jpg,.jpeg,.png,.webp,.gif,.svg"
-                className="block w-full text-xs text-gray-400 file:mr-2 file:rounded file:border-0 file:bg-purple-700 file:px-2 file:py-1 file:text-white hover:file:bg-purple-600"
+              <ImageUploadField
+                target="pricing"
                 disabled={uploadingPlanIndex === pi}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = '';
-                  if (f) void uploadPlanImage(pi, f);
-                }}
+                uploading={uploadingPlanIndex === pi}
+                onFileReady={(f) => uploadPlanImage(pi, f)}
               />
-              {uploadingPlanIndex === pi ? <p className="mt-1 text-xs text-purple-300">Yükleniyor…</p> : null}
             </div>
           </div>
         ))}

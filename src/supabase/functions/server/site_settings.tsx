@@ -2,6 +2,7 @@
  * Site geneli ayarlar (admin paneli) — PostgreSQL site_settings tablosu.
  */
 import { getSql } from './pg_client.ts';
+import { cacheDel, cacheGetJson, cacheSetJson } from './cache/index.ts';
 
 export type SiteSettingsMap = {
   login_mode: 'electron_only' | 'web_allowed';
@@ -82,10 +83,28 @@ export async function ensureSiteSettingsSchema(): Promise<void> {
   for (const [k, v] of Object.entries(DEFAULTS)) {
     await s`
       INSERT INTO site_settings (key, value)
-      VALUES (${k}, ${JSON.stringify(v)}::jsonb)
+      VALUES (${k}, ${s.json(v)})
       ON CONFLICT (key) DO NOTHING
     `;
   }
+}
+
+function normalizeStoredValue(key: keyof SiteSettingsMap, raw: unknown): SiteSettingsMap[keyof SiteSettingsMap] {
+  if (raw === null || raw === undefined) return DEFAULTS[key];
+  if (key === 'login_mode') {
+    const s = String(raw).trim().replace(/^"|"$/g, '');
+    return s === 'web_allowed' ? 'web_allowed' : 'electron_only';
+  }
+  if (key === 'notify_new_file_toast') {
+    if (typeof raw === 'boolean') return raw;
+    const t = String(raw).toLowerCase();
+    return t === 'true' || t === '1';
+  }
+  const n = Number(raw);
+  if (key === 'web_max_concurrent_sessions' || key === 'web_session_heartbeat_seconds' || key === 'last_published_file_id') {
+    return (Number.isFinite(n) ? n : DEFAULTS[key]) as SiteSettingsMap[keyof SiteSettingsMap];
+  }
+  return raw as SiteSettingsMap[keyof SiteSettingsMap];
 }
 
 async function loadAll(): Promise<SiteSettingsMap> {
@@ -95,9 +114,10 @@ async function loadAll(): Promise<SiteSettingsMap> {
   const rows = await s`SELECT key, value FROM site_settings`;
   const out = { ...DEFAULTS };
   for (const r of rows || []) {
-    const k = String(r.key);
-    const v = r.value;
-    if (k in out) (out as Record<string, unknown>)[k] = v;
+    const k = String(r.key) as keyof SiteSettingsMap;
+    if (k in out) {
+      (out as Record<string, unknown>)[k] = normalizeStoredValue(k, r.value);
+    }
   }
   out.web_max_concurrent_sessions = Math.min(
     50,
@@ -116,11 +136,16 @@ async function loadAll(): Promise<SiteSettingsMap> {
 
 export async function getSiteSettings(): Promise<SiteSettingsMap> {
   await ensureSiteSettingsSchema();
-  return await loadAll();
+  const cached = await cacheGetJson<SiteSettingsMap>('site:settings');
+  if (cached) return cached;
+  const data = await loadAll();
+  await cacheSetJson('site:settings', data, 8);
+  return data;
 }
 
 export function invalidateSiteSettingsCache(): void {
   cache = null;
+  void cacheDel('site:settings');
 }
 
 export async function isElectronOnlyLogin(): Promise<boolean> {
@@ -137,7 +162,7 @@ export async function updateSiteSettings(
     if (!(key in DEFAULTS)) continue;
     await s`
       INSERT INTO site_settings (key, value, updated_at)
-      VALUES (${key}, ${JSON.stringify(val)}::jsonb, NOW())
+      VALUES (${key}, ${s.json(val)}, NOW())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
     `;
   }

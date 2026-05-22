@@ -40,7 +40,8 @@ export function useNewFileToast(user: { id?: string } | null): void {
     };
 
     void poll();
-    const id = setInterval(() => void poll(), 60_000);
+    const pollMs = Math.max(120_000, parseInt(localStorage.getItem('ilsa_new_file_poll_ms') || '180000', 10) || 180_000);
+    const id = setInterval(() => void poll(), pollMs);
     return () => {
       cancelled = true;
       clearInterval(id);

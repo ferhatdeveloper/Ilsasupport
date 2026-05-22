@@ -73,6 +73,7 @@
           "build": "vite build",
           "db:schema": "node scripts/apply-pg-schema.cjs",
           "db:migrate:hide-history": "node scripts/pg-run-single-sql.cjs sql/11_user_download_history_user_hide.sql",
+          "db:promote-admin": "node scripts/promote-admin-user.cjs",
           "import:ort": "node scripts/import-ort-mysql-dump.cjs",
           "import:ort:json": "node scripts/import-ort-json-incremental.cjs",
           "sync:mysql": "node scripts/sync-mysql-to-pg.cjs",

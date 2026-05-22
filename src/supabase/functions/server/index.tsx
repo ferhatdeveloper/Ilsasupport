@@ -10,8 +10,10 @@ import {
   ensureFavoritesAndRequestsSchema,
   ensureJwtRotatingSessionsSchema,
   ensureLoginApprovalSchema,
+  ensureSearchTrgmIndexes,
   ensureUsersUsernameColumn,
 } from './pg_schema_ensure.tsx';
+import { runJwtSessionPurge, scheduleJwtSessionPurge } from './maintenance.tsx';
 import * as desktopApp from './desktop_app_version.tsx';
 import { setupUserFeaturesEndpoints } from './user_features_endpoints.tsx';
 import * as kv from './kv_store.tsx';
@@ -31,12 +33,17 @@ import {
   endAllWebPresenceForUser,
 } from './web_presence.tsx';
 import { getSiteSettings } from './site_settings.tsx';
-import { logLoginEvent } from './login_audit.tsx';
+import { initLoginAuditQueue, logLoginEvent } from './login_audit.tsx';
+import { verifyPasswordPooled } from './bcrypt_pool.ts';
+import { getCachedUserKv, setCachedUserKv, invalidateCachedUserKv } from './user_cache.ts';
+import { cacheBackend } from './cache/index.ts';
+import { queueBackend } from './queue/message_queue.ts';
 import { getBrandMarkaPaths, resolveMarkaIconWithPaths } from './marka_icon_resolver.ts';
 import * as setupGuard from './setup_guard.ts';
 import {
   canAccessPremiumContent,
   effectiveMaxSessions,
+  canAddSessionDevice,
   isPremiumPlanActive,
   PREMIUM_UPSELL_ENABLED,
 } from './subscription_helpers.tsx';
@@ -50,12 +57,23 @@ import * as deviceSig from './device_signature.tsx';
 
 assertJwtEnvironmentOrThrow();
 
-await ensureUsersUsernameColumn();
-await ensureLoginApprovalSchema();
-await ensureFavoritesAndRequestsSchema();
-await ensureJwtRotatingSessionsSchema();
-await ensureCmsContentTables(getSql());
-await ensureSiteSettingsSchema();
+const runSchemaEnsure = Deno.env.get('ILSA_RUN_SCHEMA_ENSURE') !== '0';
+if (runSchemaEnsure) {
+  await ensureUsersUsernameColumn();
+  await ensureLoginApprovalSchema();
+  await ensureFavoritesAndRequestsSchema();
+  await ensureJwtRotatingSessionsSchema();
+  await ensureSearchTrgmIndexes();
+  await ensureCmsContentTables(getSql());
+  await ensureSiteSettingsSchema();
+  await runJwtSessionPurge();
+  scheduleJwtSessionPurge();
+} else {
+  console.log('[boot] schema ensure atlandi (ILSA_RUN_SCHEMA_ENSURE=0)');
+}
+
+initLoginAuditQueue();
+console.log(`[boot] cache=${cacheBackend()} queue=${queueBackend()}`);
 
 const app = new Hono();
 
@@ -76,6 +94,13 @@ app.use('*', cors({
   ],
   exposeHeaders: ['X-New-Token', 'X-New-Access-Token', 'Content-Disposition', 'Content-Length', 'X-Download-Token', 'X-Download-Prepare-Mode'],
 }));
+app.use('*', async (c, next) => {
+  await next();
+  const ct = c.res.headers.get('Content-Type');
+  if (ct?.includes('application/json') && !ct.includes('charset')) {
+    c.res.headers.set('Content-Type', 'application/json; charset=utf-8');
+  }
+});
 app.use('*', logger(console.log));
 
 type AuthHeaderWriter = { header: (name: string, value: string) => void };
@@ -187,20 +212,30 @@ function publicSessionUser(userData: Record<string, unknown> | null | undefined)
   };
 }
 
-/** JWT: DB jti ile tek kullanım; yanıtta X-New-Access-Token döner */
+/** JWT doğrulama — varsayılan: tüketmez (yüksek eşzamanlılık). İndirme için JWT_ROTATE=1 */
 async function authUser(accessToken: string | undefined, responseHeaders?: AuthHeaderWriter) {
   if (!accessToken || !jwtAuth.looksLikeJwt(accessToken)) {
     return { ok: false as const };
   }
-  const rotated = await jwtAuth.verifyAndRotateAccessToken(accessToken);
-  if (!rotated.ok) return { ok: false as const };
-  if (responseHeaders) {
-    responseHeaders.header('X-New-Access-Token', rotated.newToken);
+  const rotateEveryRequest = (Deno.env.get('JWT_ROTATE_EVERY_REQUEST') || '').trim() === '1';
+  if (rotateEveryRequest) {
+    const rotated = await jwtAuth.verifyAndRotateAccessToken(accessToken);
+    if (!rotated.ok) return { ok: false as const };
+    if (responseHeaders) {
+      responseHeaders.header('X-New-Access-Token', rotated.newToken);
+    }
+    return {
+      ok: true as const,
+      user: { id: rotated.sub, username: rotated.username },
+      newAccessToken: rotated.newToken,
+    };
   }
+  const active = await jwtAuth.verifyAccessTokenActive(accessToken);
+  if (!active) return { ok: false as const };
   return {
     ok: true as const,
-    user: { id: rotated.sub, username: rotated.username },
-    newAccessToken: rotated.newToken,
+    user: { id: active.sub, username: active.username },
+    newAccessToken: undefined,
   };
 }
 
@@ -287,11 +322,15 @@ async function resolveViewerFromRequest(c: ReqCtx): Promise<{
     const active = await jwtAuth.verifyAccessTokenActive(accessToken);
     if (!active) return null;
     const uid = active.sub;
-    const fromKv = await kv.get(`user:${uid}`);
-    const userData =
-      fromKv && typeof fromKv === 'object'
-        ? (fromKv as Record<string, unknown>)
-        : ({ id: uid, username: active.username } as Record<string, unknown>);
+    let userData = await getCachedUserKv(uid);
+    if (!userData) {
+      const fromKv = await kv.get(`user:${uid}`);
+      userData =
+        fromKv && typeof fromKv === 'object'
+          ? (fromKv as Record<string, unknown>)
+          : ({ id: uid, username: active.username } as Record<string, unknown>);
+      await setCachedUserKv(uid, userData);
+    }
     return { userId: uid, userData };
   }
 
@@ -302,8 +341,13 @@ async function resolveViewerFromRequest(c: ReqCtx): Promise<{
       const uid = u?.id ? String(u.id) : '';
       if (!uid) return null;
       let userData: Record<string, unknown> = sec.user as Record<string, unknown>;
-      const fromKv = await kv.get(`user:${uid}`);
-      if (fromKv && typeof fromKv === 'object') userData = fromKv as Record<string, unknown>;
+      const cached = await getCachedUserKv(uid);
+      if (cached) userData = cached;
+      else {
+        const fromKv = await kv.get(`user:${uid}`);
+        if (fromKv && typeof fromKv === 'object') userData = fromKv as Record<string, unknown>;
+        await setCachedUserKv(uid, userData);
+      }
       return { userId: uid, userData };
     }
     return null;
@@ -336,6 +380,11 @@ function isGoogleDriveStorageUrl(url: unknown): boolean {
 let jsonCache: { [key: string]: { data: any; timestamp: number } } = {};
 const CACHE_DURATION = 5 * 60 * 1000; // 5 dakika
 
+function projectRootDir(): string {
+  const root = (Deno.env.get('ILSA_ROOT') || Deno.cwd()).trim();
+  return root.replace(/\\/g, '/').replace(/\/$/, '');
+}
+
 /**
  * JSON dosyalarını okur (Supabase Storage'dan veya local'den)
  */
@@ -348,22 +397,29 @@ async function readJSONFile(fileName: string): Promise<any> {
     }
 
     let content: string;
-    
-    // Önce root dizinden okumayı dene (local development)
-    try {
-      content = await Deno.readTextFile(`./${fileName}`);
-      console.log(`✅ Local'den okundu: ${fileName}`);
-    } catch {
-      const base = Deno.env.get('JSON_STORAGE_DIR') ?? './storage/json-files';
-      const storagePath = `${base.replace(/\/$/, '')}/${fileName}`;
-      console.log(`📁 Depolama dizininden okuma: ${storagePath}`);
+    const root = projectRootDir();
+    const base = (Deno.env.get('JSON_STORAGE_DIR') ?? `${root}/storage/json-files`).replace(/\\/g, '/').replace(/\/$/, '');
+    const candidates = [
+      `${root}/${fileName}`,
+      `${base}/${fileName}`,
+      `./${fileName}`,
+      `${base.replace(/\/$/, '')}/${fileName}`,
+    ];
+    let readOk = false;
+    for (const storagePath of candidates) {
       try {
         content = await Deno.readTextFile(storagePath);
-        console.log(`✅ Depolama dizininden okundu: ${fileName} (${content.length} bytes)`);
-      } catch (fetchError) {
-        console.error(`❌ JSON okuma hatası (${fileName}):`, fetchError);
-        return [];
+        console.log(`✅ JSON okundu: ${storagePath}`);
+        readOk = true;
+        break;
+      } catch {
+        /* sonraki yol */
       }
+    }
+    if (!readOk) {
+      const storagePath = `${base}/${fileName}`;
+      console.error(`❌ JSON okuma hatası (${fileName}): dosya yok (${storagePath})`);
+      return [];
     }
     
     // JSON parse
@@ -583,7 +639,7 @@ app.post('/make-server-47081311/setup-admin', async (c) => {
       console.log('✅ Admin zaten mevcut, signin yapılıyor:', username);
 
       const row = await db.getUserByUsername(username);
-      if (!row || !(await pwd.verifyPassword(password, row.password_hash as string))) {
+      if (!row || !(await verifyPasswordPooled(password, row.password_hash as string))) {
         return c.json({
           error: 'A user with this email address has already been registered',
           details: 'Geçersiz kullanıcı adı veya şifre',
@@ -1274,8 +1330,8 @@ app.post('/make-server-47081311/signin', async (c) => {
     const row = trimmed.includes('@')
       ? await db.getUserByEmail(trimmed)
       : await db.getUserByUsername(normalizeLoginUsername(trimmed));
-    if (!row || !(await pwd.verifyPassword(password, row.password_hash as string))) {
-      await logLoginEvent({
+    if (!row || !(await verifyPasswordPooled(password, row.password_hash as string))) {
+      logLoginEvent({
         username: trimmed,
         ipAddress,
         userAgent: c.req.header('user-agent'),
@@ -1287,7 +1343,7 @@ app.post('/make-server-47081311/signin', async (c) => {
     }
 
     if (row.role !== 'admin' && (await isElectronOnlyLogin())) {
-      await logLoginEvent({
+      logLoginEvent({
         userId: row.id,
         username: trimmed,
         ipAddress,
@@ -1334,6 +1390,7 @@ app.post('/make-server-47081311/signin', async (c) => {
       };
       await kv.set(`user:${row.id}`, userData);
     }
+    await setCachedUserKv(String(row.id), userData as Record<string, unknown>);
 
     const isWebDeviceId = (id: unknown) => String(id ?? '').startsWith('web_');
     const isAdmin = loginApproval.isAdminAccount(row, userData);
@@ -1352,7 +1409,10 @@ app.post('/make-server-47081311/signin', async (c) => {
 
     const accessToken = await jwtAuth.signAccessToken(row.id, rowUsername);
 
-    // ===== CİHAZ KONTROLÜ (yönetici hariç) =====
+    const maxSessions = effectiveMaxSessions(userData);
+    const existingSessions = await kv.getByPrefix(`session:${row.id}:`);
+
+    // ===== CİHAZ KONTROLÜ (yönetici hariç; çoklu oturum hakkı olanlar farklı cihazdan girebilir) =====
     const regDev = userData.registeredDeviceId;
     if (!isAdmin) {
       const webFingerprintDrift =
@@ -1364,22 +1424,27 @@ app.post('/make-server-47081311/signin', async (c) => {
         userData.registeredDeviceId = deviceId;
         await kv.set(`user:${row.id}`, userData);
       } else if (regDev && regDev !== deviceId) {
-        return c.json({
-          error:
-            'Bu hesap başka bir cihaza kayıtlıdır. Sadece kayıtlı cihazdan giriş yapabilirsiniz.',
-          errorCode: 'DEVICE_MISMATCH',
-        }, 403);
+        if (maxSessions <= 1 || !canAddSessionDevice(existingSessions, deviceId, maxSessions)) {
+          return c.json({
+            error:
+              maxSessions <= 1
+                ? 'Bu hesap başka bir cihaza kayıtlıdır. Sadece kayıtlı cihazdan giriş yapabilirsiniz.'
+                : `Bu hesap için en fazla ${maxSessions} cihazdan eşzamanlı giriş yapılabilir.`,
+            errorCode: maxSessions <= 1 ? 'DEVICE_MISMATCH' : 'SESSION_LIMIT_EXCEEDED',
+            maxSessions,
+          }, 403);
+        }
       }
     } else if (userData.registeredDeviceId !== deviceId) {
       userData.registeredDeviceId = deviceId;
       await kv.set(`user:${row.id}`, userData);
     }
 
-    // ===== WEB EŞZAMANLI OTURUM (admin paneli ayarı) =====
+    // ===== WEB EŞZAMANLI OTURUM (kullanıcı hakkı / plan) =====
     if (!isAdmin && isWebDeviceId(deviceId)) {
-      const webGate = await canOpenWebSession(String(row.id));
+      const webGate = await canOpenWebSession(String(row.id), maxSessions);
       if (!webGate.allowed && !forceLogin) {
-        await logLoginEvent({
+        logLoginEvent({
           userId: row.id,
           username: rowUsername,
           ipAddress,
@@ -1399,9 +1464,6 @@ app.post('/make-server-47081311/signin', async (c) => {
     }
 
     // ===== SESSION LİMİT KONTROLÜ =====
-    const maxSessions = effectiveMaxSessions(userData);
-    const existingSessions = await kv.getByPrefix(`session:${row.id}:`);
-    
     if (existingSessions.length >= maxSessions && !forceLogin) {
       return c.json({ 
         error: `Bu hesap için maksimum ${maxSessions} oturum açılabilir. Başka cihazda aktif oturumunuz var.`,
@@ -1444,7 +1506,7 @@ app.post('/make-server-47081311/signin', async (c) => {
       });
     }
 
-    await logLoginEvent({
+    logLoginEvent({
       userId: row.id,
       username: rowUsername,
       ipAddress,
@@ -1516,7 +1578,7 @@ app.post('/make-server-47081311/electron-signin', async (c) => {
       if (!ph || ph.length < 10) {
         await db.updateUserPassword(user.id, await pwd.hashPassword(password));
         user = await db.getUserById(user.id);
-      } else if (!(await pwd.verifyPassword(password, ph))) {
+      } else if (!(await verifyPasswordPooled(password, ph))) {
         return c.json({ error: 'Kullanıcı adı veya şifre hatalı' }, 400);
       }
     } else {
@@ -1546,7 +1608,7 @@ app.post('/make-server-47081311/electron-signin', async (c) => {
         if (!ph || ph.length < 10) {
           await db.updateUserPassword(user.id, await pwd.hashPassword(password));
           user = await db.getUserById(user.id);
-        } else if (!(await pwd.verifyPassword(password, ph))) {
+        } else if (!(await verifyPasswordPooled(password, ph))) {
           return c.json({ error: 'Kullanıcı adı veya şifre hatalı' }, 400);
         }
       }
@@ -1827,14 +1889,15 @@ app.get('/make-server-47081311/verify-session', async (c) => {
     if (!userData) {
       const jwtUsername = user.username;
       console.log(`ℹ️ User not in KV, creating from JWT: ${jwtUsername}`);
+      const pgRow = await db.getUserById(user.id);
       userData = {
         id: user.id,
         username: jwtUsername,
-        email: null,
-        name: jwtUsername || 'User',
-        role: 'user',
-        plan: 'free',
-        downloadLimit: 5,
+        email: pgRow?.email ?? null,
+        name: pgRow?.name ?? (jwtUsername || 'User'),
+        role: pgRow?.role ?? 'user',
+        plan: pgRow?.plan ?? 'free',
+        downloadLimit: pgRow?.role === 'admin' ? -1 : 5,
         downloadsToday: 0,
       };
       
@@ -1844,6 +1907,22 @@ app.get('/make-server-47081311/verify-session', async (c) => {
         console.log(`✅ User saved to KV: ${jwtUsername}`);
       } catch (kvSaveError) {
         console.log(`⚠️ Failed to save user to KV (non-fatal): ${kvSaveError.message}`);
+      }
+    } else {
+      const pgRow = await db.getUserById(user.id);
+      if (pgRow) {
+        userData = {
+          ...userData,
+          role: pgRow.role ?? userData.role,
+          plan: pgRow.plan ?? userData.plan,
+          name: pgRow.name ?? userData.name,
+          email: pgRow.email ?? userData.email ?? null,
+        };
+        try {
+          await kv.set(`user:${user.id}`, userData);
+        } catch {
+          /* non-fatal */
+        }
       }
     }
 
@@ -2170,20 +2249,21 @@ app.get('/make-server-47081311/files', async (c) => {
     const categoryId = c.req.query('categoryId');
     const subcategoryId = c.req.query('subcategoryId');
     const search = c.req.query('search');
-    
-    // JSON'dan dosyaları çek
-    const files = await getFilesFromJSON({
+
+    const files = await pg.getFilesFromDB({
       brandId,
       categoryId,
       subcategoryId,
-      search,
+      searchTerm: search,
+      resultLimit: pg.FILES_PAGE_SIZE,
+      offset: 0,
     });
 
-    return c.json({ 
-      success: true, 
-      files: files.sort((a: any, b: any) => 
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-      )
+    return c.json({
+      success: true,
+      files: files.sort((a: any, b: any) =>
+        new Date(b.date || b.tarih || 0).getTime() - new Date(a.date || a.tarih || 0).getTime(),
+      ),
     });
   } catch (error) {
     console.log('Dosya listeleme hatası:', error);
@@ -3191,7 +3271,7 @@ app.post('/make-server-47081311/electron-signin-secure', async (c) => {
     }
 
     const row = await db.getUserByUsername(username);
-    if (!row || !(await pwd.verifyPassword(password, row.password_hash as string))) {
+    if (!row || !(await verifyPasswordPooled(password, row.password_hash as string))) {
       return c.json({ error: 'Kullanıcı adı veya şifre hatalı' }, 400);
     }
 

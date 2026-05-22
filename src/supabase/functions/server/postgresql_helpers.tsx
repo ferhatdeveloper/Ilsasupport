@@ -5,6 +5,19 @@
 import { getSql } from './pg_client.ts';
 import { getBrandMarkaPaths, resolveMarkaIconWithPaths } from './marka_icon_resolver.ts';
 import * as gdrive from './google_drive_helper.tsx';
+import { cacheGetJson, cacheSetJson } from './cache/index.ts';
+
+const FILES_LIST_CACHE_SEC = Math.min(
+  120,
+  Math.max(10, parseInt(Deno.env.get('FILES_LIST_CACHE_SEC') || '30', 10) || 30),
+);
+
+const SEARCH_CACHE_SEC = Math.min(
+  300,
+  Math.max(30, parseInt(Deno.env.get('SEARCH_CACHE_SEC') || '90', 10) || 90),
+);
+
+const DEBUG_CACHE = (Deno.env.get('ILSA_DEBUG_CACHE') || '').trim() === '1';
 
 function db() {
   return getSql();
@@ -63,6 +76,48 @@ async function fetchCategoryAncestorChain(
   return rev.reverse();
 }
 
+type KategoriNode = { id: number; name: string; parentId: number | null; resim: string | null };
+
+let kategoriMapCache: { map: Map<number, KategoriNode>; at: number } | null = null;
+const KATEGORI_MAP_TTL_MS = 5 * 60 * 1000;
+
+async function getKategoriMap(s: ReturnType<typeof db>): Promise<Map<number, KategoriNode>> {
+  if (kategoriMapCache && Date.now() - kategoriMapCache.at < KATEGORI_MAP_TTL_MS) {
+    return kategoriMapCache.map;
+  }
+  const rows = await s`SELECT id, kategori_adi, ust_kategori_id, resim FROM kategoriler`;
+  const map = new Map<number, KategoriNode>();
+  for (const r of rows || []) {
+    const id = Number(r.id);
+    const ust = r.ust_kategori_id as number | string | null | undefined;
+    map.set(id, {
+      id,
+      name: String(r.kategori_adi || ''),
+      parentId: ust != null && ust !== '' ? Number(ust) : null,
+      resim: r.resim ?? null,
+    });
+  }
+  kategoriMapCache = { map, at: Date.now() };
+  return map;
+}
+
+function ancestorChainFromMap(
+  map: Map<number, KategoriNode>,
+  leafId: number,
+): Array<{ id: number; name: string }> {
+  const rev: Array<{ id: number; name: string }> = [];
+  let cur: number | null = leafId;
+  const seen = new Set<number>();
+  while (cur != null && Number.isFinite(cur) && !seen.has(cur)) {
+    seen.add(cur);
+    const node = map.get(cur);
+    if (!node) break;
+    rev.push({ id: node.id, name: node.name });
+    cur = node.parentId;
+  }
+  return rev.reverse();
+}
+
 /** React marka / kategori / alt kategori seçimine çevir (3 seviye; derin ağaçta yaprak yaklaşımı) */
 export function navigationHintsFromPathIds(pathIds: number[]): {
   brandId: string;
@@ -89,10 +144,10 @@ const CACHE_TTL = 60 * 1000;
 function getCached(key: string): any | null {
   const cached = cache[key];
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    console.log(`✅ Cache HIT: ${key}`);
+    if (DEBUG_CACHE) console.log(`✅ Cache HIT: ${key}`);
     return cached.data;
   }
-  console.log(`❌ Cache MISS: ${key}`);
+  if (DEBUG_CACHE) console.log(`❌ Cache MISS: ${key}`);
   return null;
 }
 
@@ -102,6 +157,7 @@ function setCache(key: string, data: any): void {
 
 export function clearPgHelpersCache(): void {
   for (const k of Object.keys(cache)) delete cache[k];
+  kategoriMapCache = null;
 }
 
 export async function getBrandsFromDB(): Promise<any[]> {
@@ -263,6 +319,23 @@ export type BilgiFilterInput = {
   searchTerm?: string;
 };
 
+function filesListCacheKey(
+  kind: 'count' | 'list',
+  filters?: BilgiFilterInput & { userRole?: string; resultLimit?: number; offset?: number },
+): string {
+  const f = {
+    kind,
+    brandId: filters?.brandId ?? '',
+    categoryId: filters?.categoryId ?? '',
+    subcategoryId: filters?.subcategoryId ?? '',
+    searchTerm: (filters?.searchTerm || '').trim().slice(0, 80),
+    userRole: filters?.userRole ?? '',
+    limit: filters?.resultLimit ?? 100,
+    offset: filters?.offset ?? 0,
+  };
+  return `files:v2:${JSON.stringify(f)}`;
+}
+
 function buildBilgiWhere(s: ReturnType<typeof db>, filters?: BilgiFilterInput) {
   let conditions = s`TRUE`;
   if (filters?.subcategoryId) {
@@ -285,10 +358,16 @@ function buildBilgiWhere(s: ReturnType<typeof db>, filters?: BilgiFilterInput) {
 }
 
 export async function countFilesFromDB(filters?: BilgiFilterInput): Promise<number> {
+  const cacheKey = filesListCacheKey('count', filters);
+  const cached = await cacheGetJson<number>(cacheKey);
+  if (cached != null && Number.isFinite(cached)) return cached;
+
   const s = db();
   const conditions = buildBilgiWhere(s, filters);
   const rows = await s`SELECT COUNT(*)::bigint AS c FROM bilgi WHERE ${conditions}`;
-  return Number(rows[0]?.c ?? 0);
+  const count = Number(rows[0]?.c ?? 0);
+  await cacheSetJson(cacheKey, count, FILES_LIST_CACHE_SEC);
+  return count;
 }
 
 /** Sayfa başına en fazla 100 satır; offset ile sayfalama */
@@ -299,7 +378,10 @@ export async function getFilesFromDB(filters?: BilgiFilterInput & {
   resultLimit?: number;
   offset?: number;
 }): Promise<any[]> {
-  console.log('📄 Fetching files from PostgreSQL...', filters);
+  const cacheKey = filesListCacheKey('list', filters);
+  const cached = await cacheGetJson<any[]>(cacheKey);
+  if (cached) return cached;
+
   const s = db();
 
   const conditions = buildBilgiWhere(s, filters);
@@ -396,7 +478,7 @@ export async function getFilesFromDB(filters?: BilgiFilterInput & {
     });
   }
 
-  return (data || [])
+  const mapped = (data || [])
     .map((f: any) => {
       const isPremium = f.asama && String(f.asama).trim() !== '';
       const rawLink = f.link != null ? String(f.link) : '';
@@ -459,6 +541,10 @@ export async function getFilesFromDB(filters?: BilgiFilterInput & {
         colorCode: f.renkodu || '#008000',
       };
     }) as any[];
+
+  const result = mapped;
+  await cacheSetJson(cacheKey, result, FILES_LIST_CACHE_SEC);
+  return result;
 }
 
 /**
@@ -471,6 +557,14 @@ export async function legacyAraSearch(
 ): Promise<{ folders: any[]; files: any[]; filesTotal: number }> {
   const q = (qRaw || '').trim();
   if (!q) return { folders: [], files: [], filesTotal: 0 };
+
+  const pageSize = Math.min(FILES_PAGE_SIZE, Math.max(1, opts?.pageSize ?? FILES_PAGE_SIZE));
+  const page = Math.max(1, opts?.page ?? 1);
+  const searchCacheKey = `search:v2:${normalizeSearchForDb(q)}:${page}:${pageSize}:${userRole ?? ''}`;
+  const cachedSearch = await cacheGetJson<{ folders: any[]; files: any[]; filesTotal: number }>(
+    searchCacheKey,
+  );
+  if (cachedSearch) return cachedSearch;
 
   try {
     const s = db();
@@ -490,26 +584,22 @@ export async function legacyAraSearch(
       LIMIT 100
     `;
 
+    const kategoriMap = await getKategoriMap(s);
     const paths = await getBrandMarkaPaths();
     const folders: any[] = [];
     const rootBrandById = new Map<number, { kategori_adi: string; resim: string | null } | null>();
     for (const fr of folderRows || []) {
-      const path = await fetchCategoryAncestorChain(s, Number(fr.id));
+      const path = ancestorChainFromMap(kategoriMap, Number(fr.id));
       const pathIds = path.map((p) => p.id);
       const nav = navigationHintsFromPathIds(pathIds);
       const rootId = pathIds.length ? Number(pathIds[0]) : NaN;
       let rootRow: { kategori_adi: string; resim: string | null } | null = null;
       if (Number.isFinite(rootId)) {
         if (!rootBrandById.has(rootId)) {
-          const rr = await s`
-            SELECT kategori_adi, resim FROM kategoriler WHERE id = ${rootId} LIMIT 1
-          `;
-          const first = rr[0];
+          const node = kategoriMap.get(rootId);
           rootBrandById.set(
             rootId,
-            first
-              ? { kategori_adi: String(first.kategori_adi), resim: first.resim ?? null }
-              : null,
+            node ? { kategori_adi: node.name, resim: node.resim } : null,
           );
         }
         rootRow = rootBrandById.get(rootId) ?? null;
@@ -540,8 +630,6 @@ export async function legacyAraSearch(
       });
     }
 
-    const pageSize = Math.min(FILES_PAGE_SIZE, Math.max(1, opts?.pageSize ?? FILES_PAGE_SIZE));
-    const page = Math.max(1, opts?.page ?? 1);
     const offset = (page - 1) * pageSize;
 
     const fileFilters: BilgiFilterInput = { searchTerm: q };
@@ -553,7 +641,9 @@ export async function legacyAraSearch(
       offset,
     });
 
-    return { folders, files, filesTotal };
+    const result = { folders, files, filesTotal };
+    await cacheSetJson(searchCacheKey, result, SEARCH_CACHE_SEC);
+    return result;
   } catch (error) {
     console.error('❌ legacyAraSearch error:', error);
     return { folders: [], files: [], filesTotal: 0 };

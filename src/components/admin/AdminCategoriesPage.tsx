@@ -3,6 +3,7 @@ import { FolderPlus, Trash2, Edit, ChevronRight, FileText, Home, Folder, Search,
 import { toast } from 'sonner@2.0.3';
 import { apiFunctionsBase, resolveCmsPublicAssetUrl } from '../../utils/supabase/info';
 import { uploadCategoryImage } from './categoryImageUpload';
+import { ImageUploadField } from './ImageUploadField';
 import { adminFetch } from '../../utils/adminApi';
 import { readResponseJson } from '../../utils/readResponseJson';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -814,20 +815,17 @@ function CategoryImageFields({
         placeholder="/img/kategori/…"
       />
       <p className={isDark ? 'mt-1 text-xs text-slate-500' : 'mt-1 text-xs text-slate-500'}>
-        Dosya yükle (jpg, png, webp…) —{' '}
+        Görsel kırpılarak{' '}
         <span className={isDark ? 'text-slate-400' : 'text-slate-600'}>public/img/kategori</span> altına kaydedilir.
       </p>
-      <input
-        type="file"
-        accept="image/*"
-        disabled={uploading}
-        className="mt-2 block w-full text-xs file:mr-3 file:rounded file:border-0 file:bg-purple-700 file:px-3 file:py-1.5 file:text-white"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void onUpload(f);
-          e.currentTarget.value = '';
-        }}
-      />
+      <div className="mt-2">
+        <ImageUploadField
+          target="category"
+          disabled={uploading}
+          uploading={uploading}
+          onFileReady={onUpload}
+        />
+      </div>
       {image ? (
         <img
           src={resolveCmsPublicAssetUrl(image)}

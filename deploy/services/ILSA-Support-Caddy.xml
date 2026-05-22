@@ -6,6 +6,7 @@
   <arguments>run --config C:\ilsasupport\deploy\Caddyfile --adapter caddyfile</arguments>
   <workingdirectory>C:\ilsasupport</workingdirectory>
   <env name="ILSA_ROOT" value="C:\ilsasupport" />
+  <!-- upstream: 8787-8790 — deploy/Caddyfile -->
   <depend>ILSA-Support-API</depend>
   <logpath>C:\ilsasupport\deploy\logs</logpath>
   <log mode="roll-by-size">

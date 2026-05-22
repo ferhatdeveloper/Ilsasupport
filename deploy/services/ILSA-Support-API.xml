@@ -1,9 +1,10 @@
 <service>
   <id>ILSA-Support-API</id>
   <name>ILSA Support API (Deno)</name>
-  <description>ILSA Support — Deno API (port 8787)</description>
-  <executable>C:\ilsasupport\tools\deno\deno.exe</executable>
-  <arguments>run -A --env-file=.env.local src/supabase/functions/server/index.tsx</arguments>
+  <description>ILSA Support — Deno API kumesi (8787-8790, 4 worker)</description>
+  <env name="ILSA_ROOT" value="C:\ilsasupport" />
+  <executable>powershell.exe</executable>
+  <arguments>-NoProfile -ExecutionPolicy Bypass -File C:\ilsasupport\scripts\run-api-cluster-service.ps1</arguments>
   <workingdirectory>C:\ilsasupport</workingdirectory>
   <logpath>C:\ilsasupport\deploy\logs</logpath>
   <log mode="roll-by-size">

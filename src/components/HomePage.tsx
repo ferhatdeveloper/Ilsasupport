@@ -18,7 +18,7 @@ import { ModernHomeHero } from './ModernHomeHero';
 import { SITE_LOGO_SRC } from '../constants/siteAssets';
 import { apiFunctionsBase } from '../utils/supabase/info';
 import { isLoggedIn } from '../utils/secureApi';
-import { PREMIUM_UPSELL_ENABLED } from '../utils/membership';
+import { isAdminUser, PREMIUM_UPSELL_ENABLED } from '../utils/membership';
 import { MembershipBadge } from './MembershipBadge';
 import { CONTACT_MESSENGER_URL } from '../constants/contactLinks';
 import { fetchBrandMarkaPaths, resolveBrandIconForGrid, type BrandMarkaPaths } from '../utils/marka_paths_client';
@@ -172,6 +172,31 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
     }
   };
 
+  /** Klasör gezintisinde üst arama kutusu dosya listesini ezmesin */
+  const clearFileSearch = () => {
+    setSearchTerm('');
+    setDebouncedSearchTerm('');
+  };
+
+  const openSubcategoryFiles = (subcategoryId: string) => {
+    clearFileSearch();
+    setSelectedSubcategory(subcategoryId);
+  };
+
+  /** Alt klasörde başka seviye var mı (yaprak ise dosya listesine geç) */
+  const subcategoryHasChildren = async (subcategoryId: string): Promise<boolean> => {
+    try {
+      const response = await fetch(
+        `${apiFunctionsBase}/subcategories?categoryId=${subcategoryId}`,
+      );
+      if (!response.ok) return false;
+      const data = await response.json();
+      return (data.subcategories || []).length > 0;
+    } catch {
+      return false;
+    }
+  };
+
   const loadSubcategories = async (categoryId: string) => {
     try {
       setLoadingSubcategories(true);
@@ -196,6 +221,15 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
           ];
         }
         setSubcategories(subs);
+
+        // Tek alt klasör ve yaprak ise ek tıklama beklemeden dosyalara geç (ör. ALCATEL REPAIR)
+        if (subs.length === 1) {
+          const only = subs[0];
+          const hasChildren = await subcategoryHasChildren(only.id);
+          if (!hasChildren) {
+            openSubcategoryFiles(only.id);
+          }
+        }
       }
     } catch (error) {
       console.error('Alt kategori yükleme hatası:', error);
@@ -207,6 +241,7 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
   const handleBrandSelect = (brandId: string) => {
     setNavigatedFromSearch(false);
     setSearchReturnTerm('');
+    clearFileSearch();
     setSelectedBrand(brandId);
     setSelectedCategory(null);
     setSelectedSubcategory(null);
@@ -216,6 +251,7 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
   const handleCategorySelect = (categoryId: string) => {
     setNavigatedFromSearch(false);
     setSearchReturnTerm('');
+    clearFileSearch();
     const picked = categories.find((c) => c.id === categoryId);
     setCategoryTrail([
       {
@@ -228,6 +264,9 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
   };
 
   const handleSubcategorySelect = async (subcategoryId: string) => {
+    // Önce dosya listesine geç; yavaş ağda tıklama "çalışmıyor" hissini önler
+    openSubcategoryFiles(subcategoryId);
+
     try {
       const response = await fetch(`${apiFunctionsBase}/subcategories?categoryId=${subcategoryId}`);
       if (response.ok) {
@@ -248,7 +287,6 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
     } catch (error) {
       console.error('Altin alti kategori kontrol hatasi:', error);
     }
-    setSelectedSubcategory(subcategoryId);
   };
 
   const handleBackToBrands = () => {
@@ -985,7 +1023,7 @@ export function HomePage({ user, accessToken, onSignIn, onSignOut, onShowAdmin }
             >
               {theme === 'dark' ? <Sun size={18} strokeWidth={2.2} /> : <Moon size={18} strokeWidth={2.2} />}
             </button>
-            {onShowAdmin && user?.role === 'admin' && (
+            {onShowAdmin && isAdminUser(user) && (
               <button type="button" className="ilsa-modern-admin-btn" onClick={onShowAdmin}>YÖNETİM PANELİ</button>
             )}
             {isLoggedIn(user, accessToken) && (

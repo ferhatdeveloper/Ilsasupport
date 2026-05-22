@@ -375,6 +375,11 @@ export function getBearerForApi(accessTokenProp: string | null | undefined): str
 /** JWT rotasyonu / secure token — indirme dahil kritik istekler sırayla gider */
 let authenticatedFetchQueue: Promise<void> = Promise.resolve();
 
+function isReadOnlyMethod(init?: RequestInit): boolean {
+  const m = (init?.method || 'GET').toUpperCase();
+  return m === 'GET' || m === 'HEAD';
+}
+
 export async function authenticatedFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -393,6 +398,10 @@ export async function authenticatedFetch(
     applyAccessTokenRotation(response);
     return response;
   };
+
+  if (isReadOnlyMethod(init)) {
+    return execute();
+  }
 
   const result = authenticatedFetchQueue.then(execute);
   authenticatedFetchQueue = result.then(

@@ -24,6 +24,7 @@ body {
   padding: 28px 24px 24px;
 }
 
+
 .brand {
   text-align: center;
   margin-bottom: 22px;
@@ -91,6 +92,40 @@ label {
   margin: 12px 0 6px;
   color: #a3a3a3;
   font-weight: 500;
+}
+
+/* Beni hatırla — genel label/input kurallarının üstünde */
+label.remember-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0 14px;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #a3a3a3;
+  cursor: pointer;
+  line-height: 1.45;
+}
+
+label.remember-row input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: #ffffff;
+}
+
+label.remember-row .remember-text {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  white-space: normal;
+  word-break: normal;
 }
 
 input {

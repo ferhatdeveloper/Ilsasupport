@@ -24,7 +24,10 @@ if (-not (Test-Path $npxCmd)) {
 
 $staging = Join-Path $projectRoot 'build-staging'
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue }
-& $npxCmd vite build --outDir build-staging
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& $npxCmd vite build --outDir build-staging 2>&1 | Out-Host
+$ErrorActionPreference = $prevEap
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $buildDir = Join-Path $projectRoot 'build'
 Get-ChildItem $staging -Force | Where-Object { $_.Name -ne 'downloads' } | ForEach-Object {
@@ -38,9 +41,12 @@ Get-ChildItem $staging -Force | Where-Object { $_.Name -ne 'downloads' } | ForEa
 }
 Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
 
-$portableName = 'ILSA-Support-Portable-1.0.2.exe'
+$portableName = 'ILSA-Support-Portable-1.0.3.exe'
 $portableCandidates = @(
-  (Join-Path $projectRoot "electron-client\release-1.0.2\$portableName"),
+  (Join-Path $projectRoot "electron-client\release-package-1.0.3\$portableName"),
+  (Join-Path $projectRoot "electron-client\release-build-latest\$portableName"),
+  (Join-Path $projectRoot "electron-client\release-1.0.3-v3\$portableName"),
+  (Join-Path $projectRoot "electron-client\release-1.0.2\ILSA-Support-Portable-1.0.2.exe"),
   (Join-Path $projectRoot "electron-client\release-1.0.1\ILSA-Support-Portable-1.0.1.exe"),
   (Join-Path $projectRoot "electron-client\release-2026-05-19\ILSA-Support-Portable-1.0.0.exe"),
   (Join-Path $projectRoot "electron-client\release-fresh-2026-05-18\ILSA-Support-Portable-1.0.0.exe"),

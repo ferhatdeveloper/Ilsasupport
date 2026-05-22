@@ -11,7 +11,15 @@ export function getSql(): ReturnType<typeof postgres> {
   if (!url) {
     throw new Error('DATABASE_URL ortam değişkeni gerekli (PostgreSQL).');
   }
-  _sql = postgres(url, { max: 20 });
+  const maxPool = Math.min(
+    100,
+    Math.max(10, parseInt(Deno.env.get('PG_POOL_MAX') || '40', 10) || 40),
+  );
+  _sql = postgres(url, {
+    max: maxPool,
+    idle_timeout: 30,
+    connect_timeout: 15,
+  });
   return _sql;
 }
 

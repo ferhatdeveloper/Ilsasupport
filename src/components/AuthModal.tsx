@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchPublicSiteSettings } from '../utils/siteSettingsClient';
-import { setStoredWebPresenceKey } from '../hooks/useWebPresence';
+import { getWebRememberPrefill, webSignIn } from '../utils/webRememberMe';
+import { WebRememberMeCheckbox } from './WebRememberMeCheckbox';
 import { X, Lock, User, LogIn, UserPlus, Monitor } from 'lucide-react';
 
 const ENV_ALLOW_WEB =
@@ -30,6 +31,13 @@ export function AuthModal({ view, onClose, onSignIn, onSwitchView }: AuthModalPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [sessionLimited, setSessionLimited] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+
+  useEffect(() => {
+    const pre = getWebRememberPrefill();
+    if (pre.username && !username) setUsername(pre.username);
+    setRememberMe(pre.enabled);
+  }, []);
 
   const finishSuccess = (token: string, user: unknown) => {
     onSignIn(token, user as any);
@@ -232,6 +240,10 @@ export function AuthModal({ view, onClose, onSignIn, onSwitchView }: AuthModalPr
               />
             </div>
           </div>
+
+          {view === 'signin' && (loginMode === 'web_allowed' || ENV_ALLOW_WEB) && (
+            <WebRememberMeCheckbox checked={rememberMe} onChange={setRememberMe} />
+          )}
 
           {error && (
             <div className="bg-red-50 dark:bg-red-500/20 border border-red-300 dark:border-red-500 text-red-700 dark:text-red-300 px-4 py-2 rounded-lg text-sm">

@@ -23,7 +23,14 @@ ilsasupport.com, www.ilsasupport.com {
 
 	@api path /make-server-47081311/*
 	handle @api {
-		reverse_proxy 127.0.0.1:8787
+		reverse_proxy 127.0.0.1:8787 127.0.0.1:8788 127.0.0.1:8789 127.0.0.1:8790
+	}
+
+	@downloads path /downloads/*
+	handle @downloads {
+		root * {$ILSA_ROOT}/build
+		header Content-Disposition "attachment"
+		file_server
 	}
 
 	handle {

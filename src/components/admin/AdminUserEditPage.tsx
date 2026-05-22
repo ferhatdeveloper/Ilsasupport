@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Monitor,
   Globe,
+  LogOut,
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { apiFunctionsBase } from '../../utils/supabase/info';
@@ -85,11 +86,13 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deviceActionId, setDeviceActionId] = useState<string | null>(null);
+  const [forceLogoutBusy, setForceLogoutBusy] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
     plan: 'free' as AdminUserDetail['plan'],
     durationDays: 30,
+    maxSessions: 1,
     password: '',
     passwordConfirm: '',
   });
@@ -110,6 +113,7 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
       name: u.name,
       plan: u.plan,
       durationDays: duration,
+      maxSessions: u.maxSessions ?? (u.plan === 'admin' ? 10 : u.plan === 'premium' ? 3 : 1),
       password: '',
       passwordConfirm: '',
     });
@@ -165,6 +169,7 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
       const payload: Record<string, unknown> = {
         name: formData.name.trim(),
         plan: formData.plan,
+        maxSessions: Math.min(50, Math.max(1, formData.maxSessions)),
       };
       if (formData.password) payload.password = formData.password;
       if (formData.plan !== 'admin') payload.durationDays = formData.durationDays;
@@ -219,7 +224,11 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
         throw new Error(err.error || 'İşlem başarısız');
       }
       const data = await res.json();
-      setDevices(data.devices || []);
+      if (Array.isArray(data.devices)) {
+        setDevices(data.devices);
+      } else {
+        await loadDevices();
+      }
       toast.success(
         action === 'approve'
           ? 'Cihaz onaylandı'
@@ -252,6 +261,33 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
     }
   };
 
+  const forceLogout = async () => {
+    if (
+      !confirm(
+        `${user?.name || user?.username} kullanıcısının tüm oturumlarını (web, masaüstü, JWT) sonlandırmak istediğinize emin misiniz?`,
+      )
+    ) {
+      return;
+    }
+    setForceLogoutBusy(true);
+    try {
+      const res = await adminFetch(`${apiFunctionsBase}/admin/users/${userId}/force-logout`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || 'Çıkış yapılamadı');
+      toast.success('Tüm oturumlar sonlandırıldı');
+      await Promise.all([loadUser(), loadDevices()]);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Çıkış yapılamadı');
+    } finally {
+      setForceLogoutBusy(false);
+    }
+  };
+
   const resetAllHardware = async () => {
     if (!confirm('Tüm cihaz kilidini sıfırlamak istediğinize emin misiniz?')) return;
     setDeviceActionId('__reset__');
@@ -260,8 +296,11 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
         method: 'POST',
       });
       if (!res.ok) throw new Error('Sıfırlama başarısız');
+      const data = await res.json().catch(() => ({}));
+      if (Array.isArray(data.devices)) setDevices(data.devices);
       toast.success('Cihaz kilidi sıfırlandı');
-      await Promise.all([loadUser(), loadDevices()]);
+      await loadUser();
+      if (!Array.isArray(data.devices)) await loadDevices();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sıfırlama başarısız');
     } finally {
@@ -324,6 +363,35 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <section
+          className={
+            isDark
+              ? 'rounded-xl border border-red-500/40 bg-red-500/10 p-4'
+              : 'rounded-xl border border-red-300 bg-red-50 p-4'
+          }
+        >
+          <h2 className={isDark ? 'text-lg font-medium text-red-200 mb-2' : 'text-lg font-medium text-red-900 mb-2'}>
+            Oturum yönetimi
+          </h2>
+          <p className={isDark ? 'text-sm text-red-100/80 mb-3' : 'text-sm text-red-800 mb-3'}>
+            Kullanıcıyı sistemden çıkarır: web sekmeleri, masaüstü uygulaması ve JWT oturumları sonlanır.
+            {typeof user.activeSessions === 'number' && user.activeSessions > 0 && (
+              <span className="block mt-1">
+                Kayıtlı aktif oturum: <strong>{user.activeSessions}</strong>
+              </span>
+            )}
+          </p>
+          <button
+            type="button"
+            onClick={() => void forceLogout()}
+            disabled={forceLogoutBusy}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            <LogOut className="w-4 h-4" />
+            {forceLogoutBusy ? 'Sonlandırılıyor…' : 'Tüm oturumları kapat'}
+          </button>
+        </section>
+
         {user.role !== 'admin' && user.plan !== 'admin' && (
           <section
             className={
@@ -389,9 +457,11 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
               <label className={labelClass}>Üye tipi</label>
               <select
                 value={formData.plan}
-                onChange={(e) =>
-                  setFormData({ ...formData, plan: e.target.value as AdminUserDetail['plan'] })
-                }
+                onChange={(e) => {
+                  const plan = e.target.value as AdminUserDetail['plan'];
+                  const defaultMax = plan === 'admin' ? 10 : plan === 'premium' ? 3 : 1;
+                  setFormData({ ...formData, plan, maxSessions: defaultMax });
+                }}
                 className={fieldClass}
               >
                 <option value="free">Free</option>
@@ -414,6 +484,26 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
                 />
               </div>
             )}
+            <div className="md:col-span-1">
+              <label className={labelClass}>Eşzamanlı oturum (cihaz) hakkı</label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                required
+                value={formData.maxSessions}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    maxSessions: Math.min(50, Math.max(1, parseInt(e.target.value, 10) || 1)),
+                  })
+                }
+                className={fieldClass}
+              />
+              <p className={isDark ? 'text-xs text-gray-500 mt-1' : 'text-xs text-slate-500 mt-1'}>
+                Aktif: {user.activeSessions ?? 0} / {formData.maxSessions} — Free varsayılan 1, Premium 3, Admin 10
+              </p>
+            </div>
           </div>
 
           <div

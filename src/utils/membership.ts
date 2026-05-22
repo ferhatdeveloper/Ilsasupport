@@ -11,6 +11,14 @@ export function openPremiumUpsell(onShowPremium?: () => void): void {
   if (PREMIUM_UPSELL_ENABLED && onShowPremium) onShowPremium();
 }
 
+/** Yönetici hesabı (role veya plan) */
+export function isAdminUser(
+  user: { role?: string; plan?: string } | null | undefined,
+): boolean {
+  if (!user) return false;
+  return user.role === 'admin' || user.plan === 'admin';
+}
+
 /** İstemci: aktif premium veya admin */
 export function isPremiumMember(
   user: { plan?: string; role?: string; expiresAt?: string | null } | null | undefined,

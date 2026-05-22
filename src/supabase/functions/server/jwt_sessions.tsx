@@ -3,6 +3,7 @@
  */
 import { SignJWT, jwtVerify } from 'npm:jose@5';
 import { getSql } from './pg_client.ts';
+import { cacheDel, cacheGet, cacheSet } from './cache/index.ts';
 
 const JWT_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -94,6 +95,8 @@ export async function verifyAndRotateAccessToken(
     return { ok: false, errorCode: 'TOKEN_ALREADY_USED' };
   }
 
+  await invalidateJwtActiveCache(jti);
+
   await s`
     INSERT INTO jwt_access_sessions (jti, user_id, expires_at, ip_address, user_agent)
     VALUES (
@@ -116,7 +119,12 @@ export async function verifyAndRotateAccessToken(
   return { ok: true, sub, username, newToken };
 }
 
-/** Sadece doğrulama (verify-session gibi salt okunur uçlar) — tüketmez */
+const JWT_ACTIVE_CACHE_SEC = Math.min(
+  120,
+  Math.max(15, parseInt(Deno.env.get('JWT_ACTIVE_CACHE_SEC') || '45', 10) || 45),
+);
+
+/** Sadece doğrulama — tüketmez; Redis/bellek ile DB yükü azaltılır */
 export async function verifyAccessTokenActive(
   token: string,
 ): Promise<{ sub: string; username: string } | null> {
@@ -131,6 +139,13 @@ export async function verifyAccessTokenActive(
   const jti = payload.jti;
   if (!sub || !jti) return null;
 
+  const cacheKey = `jwt:active:${jti}`;
+  const hit = await cacheGet(cacheKey);
+  if (hit === '1') {
+    const username = typeof payload.username === 'string' ? payload.username : '';
+    return { sub, username };
+  }
+
   const s = getSql();
   const rows = await s`
     SELECT 1 FROM jwt_access_sessions
@@ -142,11 +157,13 @@ export async function verifyAccessTokenActive(
   `;
   if (!rows.length) return null;
 
-  const username =
-    typeof payload.username === 'string'
-      ? payload.username
-      : '';
+  const username = typeof payload.username === 'string' ? payload.username : '';
+  await cacheSet(cacheKey, '1', JWT_ACTIVE_CACHE_SEC);
   return { sub, username };
+}
+
+export async function invalidateJwtActiveCache(jti: string): Promise<void> {
+  await cacheDel(`jwt:active:${jti}`);
 }
 
 /** Çıkış: jti tüketilir, yeni JWT üretilmez */
@@ -187,12 +204,16 @@ export async function revokeAllJwtSessionsForUser(userId: string): Promise<numbe
   return rows.length;
 }
 
-/** Süresi dolmuş kayıtları temizle (isteğe bağlı bakım) */
+/** Süresi dolmuş ve tüketilmiş eski JWT oturum kayıtlarını temizle */
 export async function purgeExpiredJwtSessions(): Promise<number> {
   const s = getSql();
   const rows = await s`
     DELETE FROM jwt_access_sessions
-    WHERE expires_at < NOW() - INTERVAL '7 days'
+    WHERE expires_at < NOW()
+       OR (
+         consumed_at IS NOT NULL
+         AND consumed_at < NOW() - INTERVAL '3 days'
+       )
     RETURNING jti
   `;
   return rows.length;

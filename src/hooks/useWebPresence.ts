@@ -42,8 +42,10 @@ function sendPresenceEndBeacon(sessionKey: string, userId: string): void {
   });
 }
 
-export function useWebPresence(user: { id?: string } | null, heartbeatSeconds = 45): void {
+/** Sekme gizliyken nabız durur — sunucu yükünü azaltır */
+export function useWebPresence(user: { id?: string } | null, heartbeatSeconds = 90): void {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPingRef = useRef(0);
 
   useEffect(() => {
     if (!user?.id || isElectronShell()) return;
@@ -53,7 +55,13 @@ export function useWebPresence(user: { id?: string } | null, heartbeatSeconds = 
     const sessionKey = getStoredWebPresenceKey();
     if (!sessionKey) return;
 
+    const minMs = Math.max(30_000, heartbeatSeconds * 1000);
+
     const ping = async () => {
+      if (document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastPingRef.current < minMs - 2000) return;
+      lastPingRef.current = now;
       try {
         await fetch(`${apiFunctionsBase}/web-presence/ping`, {
           method: 'POST',
@@ -68,9 +76,26 @@ export function useWebPresence(user: { id?: string } | null, heartbeatSeconds = 
       }
     };
 
-    void ping();
-    const ms = Math.max(15, heartbeatSeconds) * 1000;
-    intervalRef.current = setInterval(() => void ping(), ms);
+    const startInterval = () => {
+      if (intervalRef.current) return;
+      void ping();
+      intervalRef.current = setInterval(() => void ping(), minMs);
+    };
+
+    const stopInterval = () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') startInterval();
+      else stopInterval();
+    };
+
+    startInterval();
+    document.addEventListener('visibilitychange', onVisibility);
 
     const onUnload = () => {
       sendPresenceEndBeacon(sessionKey, String(user.id));
@@ -79,7 +104,8 @@ export function useWebPresence(user: { id?: string } | null, heartbeatSeconds = 
     window.addEventListener('beforeunload', onUnload);
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      stopInterval();
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onUnload);
       window.removeEventListener('beforeunload', onUnload);
     };
