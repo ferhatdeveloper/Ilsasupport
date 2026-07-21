@@ -16,8 +16,8 @@ export function useDesktopAppConfig(): DesktopConfig {
   const [cfg, setCfg] = useState<DesktopConfig>({
     downloadUrl: DESKTOP_PORTABLE_DOWNLOAD_URL,
     downloadFilename: DESKTOP_PORTABLE_FILENAME,
-    requiredVersion: '1.0.0',
-    latestVersion: '1.0.3',
+    requiredVersion: '1.0.3',
+    latestVersion: '1.0.6',
   });
 
   useEffect(() => {
@@ -33,8 +33,8 @@ export function useDesktopAppConfig(): DesktopConfig {
         setCfg({
           downloadUrl: data.downloadUrl || DESKTOP_PORTABLE_DOWNLOAD_URL,
           downloadFilename: filename,
-          requiredVersion: data.requiredVersion || '1.0.0',
-          latestVersion: data.latestVersion || '1.0.2',
+          requiredVersion: data.requiredVersion || '1.0.3',
+          latestVersion: data.latestVersion || '1.0.6',
         });
       } catch {
         /* varsayılan */

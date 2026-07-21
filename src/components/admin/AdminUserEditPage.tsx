@@ -172,7 +172,15 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
         maxSessions: Math.min(50, Math.max(1, formData.maxSessions)),
       };
       if (formData.password) payload.password = formData.password;
-      if (formData.plan !== 'admin') payload.durationDays = formData.durationDays;
+      if (formData.plan !== 'admin') {
+        const days = Number(formData.durationDays);
+        if (!Number.isFinite(days) || days < 1) {
+          toast.error('Üyelik süresi en az 1 gün olmalı');
+          setSaving(false);
+          return;
+        }
+        payload.durationDays = days;
+      }
 
       const res = await adminFetch(`${apiFunctionsBase}/admin/users/${userId}`, {
         method: 'PUT',
@@ -183,8 +191,19 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Güncelleme başarısız');
       }
+      const saved = await res.json().catch(() => ({}));
+      const savedUser = saved.user as AdminUserDetail | undefined;
       toast.success(formData.password ? 'Kullanıcı ve şifre güncellendi' : 'Kullanıcı güncellendi');
       await loadUser();
+      if (savedUser?.expiresAt && formData.plan !== 'admin') {
+        const days = Math.max(
+          1,
+          Math.ceil((new Date(savedUser.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+        );
+        setFormData((prev) => ({ ...prev, durationDays: days, password: '', passwordConfirm: '' }));
+      } else {
+        setFormData((prev) => ({ ...prev, password: '', passwordConfirm: '' }));
+      }
       onSaved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Kayıt başarısız');
@@ -194,20 +213,40 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
   };
 
   const deviceAction = async (
-    deviceId: string,
+    actionKey: string,
     action: 'approve' | 'deactivate' | 'delete',
     hardwareId?: string | null,
   ) => {
-    const encoded = encodeURIComponent(deviceId);
     const labels = { approve: 'onaylamak', deactivate: 'pasife almak', delete: 'silmek' };
     if (!confirm(`Bu cihazı ${labels[action]} istediğinize emin misiniz?`)) return;
 
-    setDeviceActionId(deviceId);
+    setDeviceActionId(actionKey);
     try {
       let res: Response;
       if (action === 'delete') {
-        res = await adminFetch(`${apiFunctionsBase}/admin/users/${userId}/devices/${encoded}`, {
-          method: 'DELETE',
+        res = await adminFetch(`${apiFunctionsBase}/admin/users/${userId}/devices/remove`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            deviceId: actionKey,
+            hardwareId: hardwareId ?? undefined,
+          }),
+        });
+        if (res.status === 404) {
+          res = await adminFetch(
+            `${apiFunctionsBase}/admin/users/${userId}/devices/${encodeURIComponent(actionKey)}`,
+            {
+              method: 'DELETE',
+              headers: jsonHeaders,
+              body: JSON.stringify({ hardwareId: hardwareId ?? undefined }),
+            },
+          );
+        }
+      } else if (action === 'deactivate') {
+        res = await adminFetch(`${apiFunctionsBase}/admin/users/${userId}/devices/deactivate`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ deviceId: actionKey, hardwareId: hardwareId ?? undefined }),
         });
       } else {
         const body =
@@ -215,7 +254,7 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
             ? JSON.stringify({ hardwareId })
             : '{}';
         res = await adminFetch(
-          `${apiFunctionsBase}/admin/users/${userId}/devices/${encoded}/${action}`,
+          `${apiFunctionsBase}/admin/users/${userId}/devices/${encodeURIComponent(actionKey)}/${action}`,
           { method: 'POST', headers: jsonHeaders, body },
         );
       }
@@ -224,10 +263,10 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
         throw new Error(err.error || 'İşlem başarısız');
       }
       const data = await res.json();
-      if (Array.isArray(data.devices)) {
-        setDevices(data.devices);
-      } else {
-        await loadDevices();
+      const nextDevices = Array.isArray(data.devices) ? data.devices : [];
+      setDevices(nextDevices);
+      if (action === 'delete' && nextDevices.some((d) => d.id === actionKey || d.deviceId === actionKey)) {
+        throw new Error(data.error || 'Cihaz silinemedi — listede hâlâ görünüyor');
       }
       toast.success(
         action === 'approve'
@@ -236,7 +275,11 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
             ? 'Cihaz pasife alındı'
             : 'Cihaz silindi',
       );
-      await loadUser();
+      if (action === 'delete') {
+        await loadDevices();
+      } else {
+        await loadUser();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'İşlem başarısız');
     } finally {
@@ -471,15 +514,18 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
             </div>
             {formData.plan !== 'admin' && (
               <div className="md:col-span-1">
-                <label className={labelClass}>Üyelik süresi (gün)</label>
+                <label className={labelClass}>Üyelik süresi (gün — bugünden itibaren)</label>
                 <input
                   type="number"
                   min={1}
                   required
                   value={formData.durationDays}
-                  onChange={(e) =>
-                    setFormData({ ...formData, durationDays: parseInt(e.target.value, 10) || 1 })
-                  }
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (Number.isFinite(n) && n > 0) {
+                      setFormData({ ...formData, durationDays: n });
+                    }
+                  }}
                   className={fieldClass}
                 />
               </div>
@@ -660,18 +706,18 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => void deviceAction(d.deviceId, 'approve', d.hardwareId)}
+                            onClick={() => void deviceAction(d.id, 'approve', d.hardwareId)}
                             className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Onayla
                           </button>
                         )}
-                        {d.isActive && d.kind === 'session' && (
+                        {(d.isActive || d.status === 'approved') && (
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() => void deviceAction(d.deviceId, 'deactivate')}
+                            onClick={() => void deviceAction(d.id, 'deactivate')}
                             className={
                               isDark
                                 ? 'flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 disabled:opacity-50'
@@ -685,7 +731,7 @@ export function AdminUserEditPage({ userId, onBack, onSaved }: AdminUserEditPage
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => void deviceAction(d.deviceId, 'delete')}
+                          onClick={() => void deviceAction(d.id, 'delete', d.hardwareId)}
                           className="flex items-center gap-1 px-3 py-1.5 text-xs bg-red-600/90 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

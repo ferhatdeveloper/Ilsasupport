@@ -15,15 +15,21 @@ import {
   getDownloadIframeFrameProps,
   looksLikeRasterImageFilename,
   openPreparedDownloadExternally,
+  openGoogleDriveImageInNewTab,
+  openRasterImageDirectView,
   resolvePreparedModalFrameUrl,
-  shouldForceIframeDriveDownloadFlow,
 } from '../utils/startPreparedDownload';
+import { shouldOpenAsGoogleDriveImage } from '../utils/bilgiImageFlag';
 import { openUrlInSystemBrowser } from '../utils/electronBrowser';
 import { isElectronShell } from '../utils/secureApi';
 import { DownloadModal } from './DownloadModal';
-import { buildGoogleDriveDirectDownloadUrl, extractGoogleDriveFileId } from '../utils/googleDrive';
+import {
+  buildGoogleDriveDirectDownloadUrl,
+  buildGoogleDriveViewUrl,
+  extractGoogleDriveFileId,
+} from '../utils/googleDrive';
 import { fetchBrandMarkaPaths, resolveDirectoryIconForGrid, type BrandMarkaPaths } from '../utils/marka_paths_client';
-import '../styles/modern-pages.css';
+import { NEW_FILE_BADGE_COUNT, isNewFileByIndex } from '../constants/newFiles';
 
 interface LatestFilesPageProps {
   user: any | null;
@@ -48,6 +54,25 @@ interface FileItem {
   driveFileId?: string | null;
   googleDriveLink?: string;
   driveWebViewUrl?: string;
+  notification?: string | null;
+}
+
+function NewFileBadge({ compact = false }: { compact?: boolean }) {
+  const heightPx = compact ? 36 : 40;
+  const maxWidthPx = Math.round(heightPx * 2.45);
+  return (
+    <span className="yeni-file-badge inline-flex shrink-0 items-center align-middle leading-none">
+      <img
+        src="/img/yeni-badge.png?v=9"
+        alt="YENİ"
+        draggable={false}
+        width={maxWidthPx}
+        height={heightPx}
+        className="yeni-file-badge-img block object-contain select-none"
+        style={{ height: heightPx, width: 'auto', maxHeight: heightPx, maxWidth: maxWidthPx }}
+      />
+    </span>
+  );
 }
 
 function formatSizeMb(bytes: unknown): string {
@@ -73,6 +98,7 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
   const [downloadModalFile, setDownloadModalFile] = useState<{
     id: string;
     name: string;
+    notification?: string | null;
     driveFileId?: string | null;
     driveUrl?: string;
   } | null>(null);
@@ -201,9 +227,27 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
       return;
     }
 
+    if (shouldOpenAsGoogleDriveImage(file.name, file.notification)) {
+      const opened = await openGoogleDriveImageInNewTab({
+        fileName: file.name,
+        notification: file.notification,
+        driveFileId: typeof file.driveFileId === 'string' ? file.driveFileId : null,
+        driveUrl: file.driveWebViewUrl || file.googleDriveLink || '',
+      });
+      if (opened.ok) {
+        void authenticatedFetch(
+          `${apiFunctionsBase}/request-download?fileId=${file.id}`,
+          { method: 'POST' },
+          accessToken,
+        ).catch(() => undefined);
+        return;
+      }
+    }
+
     setDownloadModalFile({
       id: String(file.id),
       name: file.name,
+      notification: file.notification,
       driveFileId: typeof file.driveFileId === 'string' ? file.driveFileId : null,
       driveUrl: file.driveWebViewUrl || file.googleDriveLink || '',
     });
@@ -257,6 +301,33 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
         alert(data?.error || 'İndirme hazırlığı başarısız.');
         return;
       }
+      if (
+        data.isImageEntry ||
+        shouldOpenAsGoogleDriveImage(modalFile.name, modalFile.notification)
+      ) {
+        const opened = await openRasterImageDirectView(modalFile.name, data, {
+          driveFileId: modalFile.driveFileId,
+          driveUrl: modalFile.driveUrl,
+          notification: modalFile.notification,
+        });
+        if (opened.ok) {
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        const driveId =
+          modalFile.driveFileId || extractGoogleDriveFileId(modalFile.driveUrl || '');
+        const viewUrl = driveId ? buildGoogleDriveViewUrl(driveId) : null;
+        if (viewUrl) {
+          window.open(viewUrl, '_blank', 'noopener,noreferrer');
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        alert(opened.error || 'Resim Google Drive bağlantısı açılamadı.');
+        return;
+      }
+
       if (isElectronShell()) {
         const ext = await openPreparedDownloadExternally(data);
         if (ext.ok) {
@@ -283,20 +354,12 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
 
       if (preparedUrl) {
         setDownloadFrameUrl(preparedUrl);
-        setDownloadStatus(
-          looksLikeRasterImageFilename(modalFile.name)
-            ? 'Resim modal içinde önizleniyor; kalıcı indirme için «İndir»e basın.'
-            : 'İndirme ekranı modal içinde açıldı.',
-        );
+        setDownloadStatus('İndirme ekranı modal içinde açıldı.');
         return;
       }
 
       if (applyDriveFallbackUrl(modalFile)) {
-        setDownloadStatus(
-          looksLikeRasterImageFilename(modalFile.name)
-            ? 'Resim önizlemesi için bağlantı açıldı; gerekirse «İndir»e basın.'
-            : 'İndirme fallback ile modal içinde başlatıldı.',
-        );
+        setDownloadStatus('İndirme fallback ile modal içinde başlatıldı.');
         return;
       }
       alert('İndirme başlatılamadı. Lütfen tekrar deneyin.');
@@ -309,21 +372,8 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
   }, [downloadModalFile, accessToken, onShowAuth, onShowPremium]);
 
   const handleModalDownloadClick = useCallback(() => {
-    if (isElectronShell()) {
-      void startPreparedDownload();
-      return;
-    }
-    if (
-      downloadFrameUrl &&
-      downloadModalFile &&
-      looksLikeRasterImageFilename(downloadModalFile.name) &&
-      !shouldForceIframeDriveDownloadFlow(downloadFrameUrl)
-    ) {
-      window.open(downloadFrameUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
     void startPreparedDownload();
-  }, [downloadFrameUrl, downloadModalFile, startPreparedDownload]);
+  }, [startPreparedDownload]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -355,7 +405,7 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
   };
 
   return (
-    <div className="ilsa-page ilsa-page-home-compat">
+    <div className="ilsa-page ilsa-page-home-compat ilsa-page-latest-files">
       <div className="ilsa-page-container">
         <div className="ilsa-surface mb-6 px-5 py-4 sm:px-6">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-400 mb-1">
@@ -376,7 +426,7 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
           </div>
           <div className="ilsa-surface rounded-xl px-4 py-3">
             <p className="text-xs uppercase tracking-wide ilsa-muted">Yeni etiketi</p>
-            <p className="mt-1 text-xl font-semibold ilsa-title">{Math.min(files.length, 5)}</p>
+            <p className="mt-1 text-xl font-semibold ilsa-title">{Math.min(files.length, NEW_FILE_BADGE_COUNT)}</p>
           </div>
           <div className="ilsa-surface rounded-xl px-4 py-3">
             <p className="text-xs uppercase tracking-wide ilsa-muted">Gorunum</p>
@@ -468,14 +518,14 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h3 className="ilsa-title truncate font-semibold tracking-tight mb-1">{file.name}</h3>
+                      <div className="flex flex-wrap items-center gap-2 mb-1 min-w-0">
+                        <h3 className="ilsa-title ilsa-file-card-title truncate font-semibold tracking-tight min-w-0 flex-1">
+                          {file.name}
+                        </h3>
+                        {isNewFileByIndex(index) && <NewFileBadge compact />}
+                      </div>
 
                       <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                        {index < 5 && (
-                          <span className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-2 py-0.5 rounded text-[10px] uppercase font-semibold">
-                            Yeni
-                          </span>
-                        )}
                         {file.categoryName && !isSameLabel(file.categoryName, getBrandLabel(file)) && (
                           <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 text-[10px] font-semibold">
                             {file.categoryName}
@@ -483,7 +533,7 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 text-xs ilsa-muted font-medium">
+                      <div className="ilsa-file-card-meta flex flex-wrap items-center gap-2 ilsa-muted font-medium">
                         <span className="font-bold" style={{ color: '#000000' }}>
                           Tarih: {new Date(file.createdAt).toLocaleString('tr-TR')}
                         </span>
@@ -559,12 +609,12 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
                 className="ilsa-surface p-4 transition-all hover:border-red-500/60"
               >
                 <div className="mb-3">
-                  {index < 5 && (
-                    <span className="inline-block bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-2 py-0.5 rounded text-xs uppercase mb-2">
-                      Yeni
-                    </span>
+                  {isNewFileByIndex(index) && (
+                    <div className="mb-2">
+                      <NewFileBadge compact />
+                    </div>
                   )}
-                  <h3 className="ilsa-title line-clamp-2 mb-2 font-semibold tracking-tight">{file.name}</h3>
+                  <h3 className="ilsa-title ilsa-file-card-title line-clamp-2 mb-2 font-semibold tracking-tight">{file.name}</h3>
                   {getBrandLabel(file) && (
                     <div className="mb-2">
                       <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-50 text-purple-700 ring-1 ring-purple-200 text-xs">
@@ -589,7 +639,7 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
                   )}
                 </div>
 
-                <div className="space-y-2 mb-4 text-sm text-gray-600 font-medium">
+                <div className="ilsa-file-card-meta space-y-2 mb-4 text-gray-600 font-medium">
                   {getBrandLabel(file) && (
                     <div className="flex items-center gap-2">
                       {(() => {
@@ -685,6 +735,8 @@ export function LatestFilesPage({ user, accessToken, onBack, onShowPremium, onSh
         onClose={() => {
           setDownloadModalFile(null);
           setDownloadFrameUrl(null);
+          setDownloadStatus('');
+          setPreparingDownload(false);
         }}
         frameFileName={downloadModalFile?.name ?? null}
         externalBrowserHint={isElectronShell()}

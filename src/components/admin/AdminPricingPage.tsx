@@ -337,6 +337,7 @@ export function AdminPricingPage() {
               )}
               <ImageUploadField
                 target="pricing"
+                directUpload
                 disabled={uploadingPlanIndex === pi}
                 uploading={uploadingPlanIndex === pi}
                 onFileReady={(f) => uploadPlanImage(pi, f)}

@@ -120,8 +120,8 @@ export function ImageCropDialog({ open, file, target, onClose, onConfirm }: Prop
         preset.quality,
       );
       const out = blobToFile(blob, file.name, preset.mimeType);
-      onConfirm(out);
       onClose();
+      onConfirm(out);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {

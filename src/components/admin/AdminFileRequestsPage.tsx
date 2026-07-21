@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FileQuestion, RefreshCw, Search } from 'lucide-react';
+import { FileQuestion, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { apiFunctionsBase } from '../../utils/supabase/info';
 import { adminFetch } from '../../utils/adminApi';
@@ -37,6 +37,7 @@ export function AdminFileRequestsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | RequestStatus>('all');
   const [search, setSearch] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const surfaceClass = isDark
     ? 'rounded-xl border border-gray-700 bg-gray-800/50 backdrop-blur'
@@ -114,6 +115,27 @@ export function AdminFileRequestsPage() {
       toast.error('Bağlantı hatası');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const deleteRequest = async (id: string, title: string) => {
+    if (!confirm(`«${title}» isteğini kalıcı olarak silmek istiyor musunuz?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await adminFetch(`${apiFunctionsBase}/admin/file-requests/${id}/delete`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error((data as { error?: string }).error || 'Silinemedi');
+        return;
+      }
+      setRequests((prev) => prev.filter((r) => r.id !== id));
+      toast.success('İstek silindi');
+    } catch {
+      toast.error('Bağlantı hatası');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -209,6 +231,7 @@ export function AdminFileRequestsPage() {
                   <th className={thClass}>Marka</th>
                   <th className={thClass}>Açıklama</th>
                   <th className={thClass}>Durum</th>
+                  <th className={`${thClass} text-right`}>İşlem</th>
                 </tr>
               </thead>
               <tbody className={isDark ? 'divide-y divide-gray-700' : 'divide-y divide-slate-200'}>
@@ -231,7 +254,7 @@ export function AdminFileRequestsPage() {
                     <td className={tdClass}>
                       <select
                         value={r.status}
-                        disabled={updatingId === r.id}
+                        disabled={updatingId === r.id || deletingId === r.id}
                         onChange={(e) => void updateStatus(r.id, e.target.value as RequestStatus)}
                         className={selectClass}
                       >
@@ -241,6 +264,22 @@ export function AdminFileRequestsPage() {
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className={`${tdClass} text-right`}>
+                      <button
+                        type="button"
+                        disabled={deletingId === r.id || updatingId === r.id}
+                        onClick={() => void deleteRequest(r.id, r.title)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border ${
+                          isDark
+                            ? 'border-red-800 text-red-300 hover:bg-red-950/40'
+                            : 'border-red-200 text-red-700 hover:bg-red-50'
+                        } disabled:opacity-50`}
+                        title="İsteği sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Sil
+                      </button>
                     </td>
                   </tr>
                 ))}

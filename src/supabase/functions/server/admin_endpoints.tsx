@@ -13,6 +13,7 @@ import * as desktopApp from './desktop_app_version.tsx';
 import { bumpLastPublishedFileId } from './site_settings.tsx';
 import * as security from './security_middleware.tsx';
 import { endAllWebPresenceForUser } from './web_presence.tsx';
+import { invalidateCachedUserKv } from './user_cache.ts';
 
 const MAX_CMS_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -229,6 +230,61 @@ function maxSessionsForUser(
   return maxSessionsFromSources(userData, row);
 }
 
+/** KV kaydı yoksa PostgreSQL + legacy_profile ile oluştur (içe aktarma / eski kayıtlar) */
+function rebuildUserKvFromPgRow(
+  userId: string,
+  row: {
+    username?: string | null;
+    email?: string | null;
+    name?: string | null;
+    role?: string | null;
+    plan?: string | null;
+    legacy_profile?: unknown;
+    registered_hardware_id?: string | null;
+    created_at?: string | null;
+  },
+): Record<string, unknown> {
+  const lp =
+    row.legacy_profile && typeof row.legacy_profile === 'object'
+      ? (row.legacy_profile as Record<string, unknown>)
+      : {};
+  const role = String(row.role ?? lp.kvRole ?? 'user');
+  const planRaw = String(lp.kvPlan ?? row.plan ?? 'free');
+  const plan =
+    role === 'admin' ? 'admin' : planRaw === 'premium' ? 'premium' : 'free';
+  return {
+    id: userId,
+    username: row.username ?? null,
+    email: row.email ?? null,
+    name: row.name ?? 'Unknown',
+    role,
+    plan,
+    createdAt: row.created_at ?? new Date().toISOString(),
+    expiresAt: (lp.expiresAt as string | null | undefined) ?? null,
+    maxSessions:
+      typeof lp.maxSessions === 'number'
+        ? lp.maxSessions
+        : effectiveMaxSessions({ role, plan }),
+    downloadLimit:
+      typeof lp.downloadLimit === 'number'
+        ? lp.downloadLimit
+        : role === 'admin'
+          ? -1
+          : plan === 'premium'
+            ? 50
+            : 5,
+    downloadCount: typeof lp.downloadCount === 'number' ? lp.downloadCount : 0,
+    activeSessions: typeof lp.activeSessions === 'number' ? lp.activeSessions : 0,
+    hardwareId: row.registered_hardware_id ?? (lp.registeredDeviceId as string | null) ?? null,
+    registeredDeviceId:
+      (lp.registeredDeviceId as string | null) ?? row.registered_hardware_id ?? null,
+    registeredAt: (lp.registeredAt as string | null) ?? null,
+    lastLoginAt: (lp.lastLoginAt as string | null) ?? null,
+    downloadsToday: typeof lp.downloadsToday === 'number' ? lp.downloadsToday : 0,
+    loginApproved: loginApproval.readLoginApproved(row, undefined),
+  };
+}
+
 type AdminDeviceRow = {
   id: string;
   kind: 'session' | 'primary';
@@ -252,6 +308,17 @@ function deviceLabel(deviceId: string, hardwareId: string | null): string {
     return `Masaüstü (${short})`;
   }
   return deviceId.length > 24 ? `${deviceId.slice(0, 24)}…` : deviceId;
+}
+
+function normalizeHardwareKey(hw: string | null | undefined): string | null {
+  const t = String(hw ?? '').trim().toLowerCase();
+  return t || null;
+}
+
+function hardwareIdsMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = normalizeHardwareKey(a);
+  const y = normalizeHardwareKey(b);
+  return !!(x && y && x === y);
 }
 
 function loginDeviceUiStatus(
@@ -294,144 +361,130 @@ async function listAdminUserDevices(userId: string): Promise<AdminDeviceRow[]> {
   await loginApproval.normalizeSingleApprovedDevice(userId);
   const row = await db.getUserById(userId);
   const userData = await kv.get(`user:${userId}`);
-  const primaryHw =
+  const primaryHwNorm = normalizeHardwareKey(
     row?.registered_hardware_id ??
-    userData?.hardwareId ??
-    userData?.registeredDeviceId ??
-    null;
+      userData?.hardwareId ??
+      userData?.registeredDeviceId ??
+      null,
+  );
 
-  const loginStatusByHw = new Map<string, string>();
+  const s = getSql();
+  let loginDevs: Array<{
+    hardware_id: string;
+    status: string;
+    last_attempt_at?: string | null;
+  }> = [];
   try {
-    const { getSql } = await import('./pg_client.ts');
-    const s = getSql();
-    const loginDevs = await s`
-      SELECT hardware_id, status FROM user_login_devices WHERE user_id = ${userId}::uuid
-    `;
-    for (const ld of loginDevs) {
-      if (ld.hardware_id) loginStatusByHw.set(String(ld.hardware_id), String(ld.status));
-    }
+    loginDevs = (await s`
+      SELECT hardware_id, status, last_attempt_at
+      FROM user_login_devices
+      WHERE user_id = ${userId}::uuid AND status != 'rejected'
+      ORDER BY last_attempt_at DESC NULLS LAST
+    `) as typeof loginDevs;
   } catch {
-    /* tablo yoksa atla */
+    /* tablo yok */
   }
 
-  const map = new Map<string, AdminDeviceRow>();
+  const sessions = await db.getAllSessionsForUser(userId);
+  const activityByHw = new Map<
+    string,
+    { lastActivity: string | null; isActive: boolean; ip: string | null; ua: string | null }
+  >();
+  const webDevices: AdminDeviceRow[] = [];
 
-  const deviceKey = (hw: string | null, deviceId: string) => (hw ? `hw:${hw}` : `sess:${deviceId}`);
-
-  const upsertRow = (entry: AdminDeviceRow, hw: string | null) => {
-    const key = deviceKey(hw, entry.deviceId);
-    const existing = map.get(key);
-    const dbSt = hw ? loginStatusByHw.get(hw) : null;
-    const status = loginDeviceUiStatus(dbSt, entry.isActive || (existing?.isActive ?? false));
-    const merged: AdminDeviceRow = {
-      ...(existing ?? entry),
-      ...entry,
-      hardwareId: hw ?? entry.hardwareId,
-      isPrimary: !!(primaryHw && hw && primaryHw === hw),
-      status,
-      label:
-        status === 'pending' && entry.label.includes('onay bekliyor')
-          ? entry.label
-          : status === 'pending'
-            ? `${deviceLabel(entry.deviceId, hw)} (onay bekliyor)`
-            : deviceLabel(entry.deviceId, hw),
-    };
-    map.set(key, merged);
-  };
-
-  const sqlSessions = await db.getAllSessionsForUser(userId);
-  for (const sess of sqlSessions) {
-    const deviceId = String(sess.device_id);
-    const hw = sess.hardware_id ? String(sess.hardware_id) : null;
-    upsertRow(
-      {
-        id: hw ? `logindev:${hw}` : deviceId,
+  for (const sess of sessions) {
+    const devId = String(sess.device_id);
+    if (devId.startsWith('web_')) {
+      webDevices.push({
+        id: devId,
         kind: 'session',
-        deviceId: hw ? `logindev:${hw}` : deviceId,
-        hardwareId: hw,
-        label: deviceLabel(deviceId, hw),
-        userAgent: sess.user_agent ?? null,
-        ipAddress: sess.ip_address ?? null,
+        deviceId: devId,
+        hardwareId: null,
+        label: deviceLabel(devId, null),
+        userAgent: sess.user_agent ? String(sess.user_agent) : null,
+        ipAddress: sess.ip_address ? String(sess.ip_address) : null,
         isActive: !!sess.is_active,
         isPrimary: false,
-        status: 'pending',
+        status: sess.is_active ? 'approved' : 'inactive',
         lastActivity: sess.last_activity ? String(sess.last_activity) : null,
         createdAt: sess.created_at ? String(sess.created_at) : null,
         source: 'sql',
-      },
-      hw,
-    );
+      });
+      continue;
+    }
+    const hw = normalizeHardwareKey(sess.hardware_id);
+    if (!hw) continue;
+    const la = sess.last_activity ? String(sess.last_activity) : null;
+    const prev = activityByHw.get(hw);
+    activityByHw.set(hw, {
+      lastActivity:
+        prev?.lastActivity && la
+          ? new Date(prev.lastActivity) > new Date(la)
+            ? prev.lastActivity
+            : la
+          : la ?? prev?.lastActivity ?? null,
+      isActive: !!(prev?.isActive || sess.is_active),
+      ip: sess.ip_address ? String(sess.ip_address) : prev?.ip ?? null,
+      ua: sess.user_agent ? String(sess.user_agent) : prev?.ua ?? null,
+    });
   }
 
-  const kvSessions = await kv.getByPrefix(`session:${userId}:`);
-  for (const item of kvSessions) {
-    const v = item.value ?? {};
-    const parts = String(item.key).split(':');
-    const deviceId = v.deviceId ? String(v.deviceId) : parts.slice(2).join(':');
-    if (!deviceId) continue;
-    const hw = v.hardwareId != null ? String(v.hardwareId) : null;
-    upsertRow(
-      {
-        id: hw ? `logindev:${hw}` : deviceId,
-        kind: 'session',
-        deviceId: hw ? `logindev:${hw}` : deviceId,
-        hardwareId: hw,
-        label: deviceLabel(deviceId, hw),
-        userAgent: null,
-        ipAddress: null,
-        isActive: v.isValid !== false,
-        isPrimary: false,
-        status: 'pending',
-        lastActivity: v.lastActivity ? String(v.lastActivity) : null,
-        createdAt: v.createdAt ? String(v.createdAt) : null,
-        source: 'kv',
-      },
-      hw,
-    );
-  }
+  const rows: AdminDeviceRow[] = [];
+  const seenHw = new Set<string>();
 
-  for (const [hw, st] of loginStatusByHw) {
-    const lid = `logindev:${hw}`;
-    if (map.has(deviceKey(hw, lid))) continue;
-    const status = loginDeviceUiStatus(st, st === 'approved');
-    map.set(deviceKey(hw, lid), {
-      id: lid,
-      kind: 'session',
-      deviceId: lid,
+  for (const ld of loginDevs) {
+    const hw = normalizeHardwareKey(ld.hardware_id);
+    if (!hw || seenHw.has(hw)) continue;
+    seenHw.add(hw);
+    const st = String(ld.status ?? '').toLowerCase();
+    const act = activityByHw.get(hw);
+    const status = loginDeviceUiStatus(st, st === 'approved' || !!act?.isActive);
+    rows.push({
+      id: `logindev:${hw}`,
+      kind: primaryHwNorm === hw ? 'primary' : 'session',
+      deviceId: `logindev:${hw}`,
       hardwareId: hw,
-      label: deviceLabel(lid, hw) + (status === 'pending' ? ' (onay bekliyor)' : ''),
-      userAgent: null,
-      ipAddress: null,
-      isActive: st === 'approved',
-      isPrimary: !!(primaryHw && hw === primaryHw),
+      label:
+        status === 'pending'
+          ? `${deviceLabel('electron', hw)} (onay bekliyor)`
+          : deviceLabel('electron', hw),
+      userAgent: act?.ua ?? null,
+      ipAddress: act?.ip ?? null,
+      isActive: status === 'approved' || !!act?.isActive,
+      isPrimary: primaryHwNorm === hw,
       status,
-      lastActivity: null,
-      createdAt: null,
+      lastActivity: act?.lastActivity ?? (ld.last_attempt_at ? String(ld.last_attempt_at) : null),
+      createdAt: ld.last_attempt_at ? String(ld.last_attempt_at) : null,
       source: 'sql',
     });
   }
 
-  if (primaryHw && !map.has(deviceKey(primaryHw, `logindev:${primaryHw}`))) {
-    const pid = `logindev:${primaryHw}`;
-    const st = loginStatusByHw.get(primaryHw);
-    map.set(deviceKey(primaryHw, pid), {
-      id: pid,
-      kind: 'primary',
-      deviceId: pid,
-      hardwareId: primaryHw,
-      label: deviceLabel('electron', primaryHw),
-      userAgent: null,
-      ipAddress: null,
-      isActive: st === 'approved',
-      isPrimary: true,
-      status: loginDeviceUiStatus(st, st === 'approved'),
-      lastActivity: row?.registered_at ? String(row.registered_at) : null,
-      createdAt: row?.registered_at ? String(row.registered_at) : null,
-      source: 'sql',
-    });
+  if (primaryHwNorm && !seenHw.has(primaryHwNorm)) {
+    const act = activityByHw.get(primaryHwNorm);
+    const hasLoginRow = loginDevs.some(
+      (ld) => normalizeHardwareKey(ld.hardware_id) === primaryHwNorm,
+    );
+    if (hasLoginRow || act?.isActive) {
+      rows.push({
+        id: `logindev:${primaryHwNorm}`,
+        kind: 'primary',
+        deviceId: `logindev:${primaryHwNorm}`,
+        hardwareId: primaryHwNorm,
+        label: deviceLabel('electron', primaryHwNorm),
+        userAgent: act?.ua ?? null,
+        ipAddress: act?.ip ?? null,
+        isActive: !!act?.isActive,
+        isPrimary: true,
+        status: loginDeviceUiStatus(undefined, !!act?.isActive),
+        lastActivity: act?.lastActivity ?? (row?.registered_at ? String(row.registered_at) : null),
+        createdAt: row?.registered_at ? String(row.registered_at) : null,
+        source: 'sql',
+      });
+    }
   }
 
-  return Array.from(map.values()).sort((a, b) => {
+  const merged = [...rows, ...webDevices];
+  merged.sort((a, b) => {
     const order = { approved: 0, pending: 1, inactive: 2 };
     const d = order[a.status] - order[b.status];
     if (d !== 0) return d;
@@ -439,6 +492,7 @@ async function listAdminUserDevices(userId: string): Promise<AdminDeviceRow[]> {
     const tb = b.lastActivity ? new Date(b.lastActivity).getTime() : 0;
     return tb - ta;
   });
+  return merged;
 }
 
 async function userDataPatchActiveSessions(userId: string, count: number) {
@@ -446,6 +500,203 @@ async function userDataPatchActiveSessions(userId: string, count: number) {
   if (!userData) return;
   userData.activeSessions = count;
   await kv.set(`user:${userId}`, userData);
+}
+
+/** KV oturum önbelleğinde kalan kayıtları donanım / oturum kimliğine göre temizle */
+async function purgeKvSessionsForUserDevice(
+  userId: string,
+  opts: { hardwareId?: string | null; deviceId?: string | null },
+) {
+  const hw = opts.hardwareId?.trim() || null;
+  const deviceId = opts.deviceId?.trim() || null;
+  if (!hw && !deviceId) return;
+  const keysToDelete: string[] = [];
+
+  if (hw) {
+    const sqlSessions = await db.getAllSessionsForUser(userId);
+    for (const sess of sqlSessions) {
+      if (sess.hardware_id && hardwareIdsMatch(sess.hardware_id, hw)) {
+        keysToDelete.push(`session:${userId}:${String(sess.device_id)}`);
+      }
+    }
+  }
+
+  const kvSessions = await kv.getByPrefix(`session:${userId}:`);
+  for (const item of kvSessions) {
+    const key = String(item.key);
+    if (key.startsWith('session:token:')) continue;
+    const v = item.value ?? {};
+    const vHw = v.hardwareId != null ? String(v.hardwareId) : null;
+    const parts = key.split(':');
+    const sessDevId = v.deviceId ? String(v.deviceId) : parts.slice(2).join(':');
+    if (hw && vHw && hardwareIdsMatch(vHw, hw)) keysToDelete.push(key);
+    else if (deviceId && sessDevId === deviceId) keysToDelete.push(key);
+  }
+  const unique = [...new Set(keysToDelete)];
+  if (unique.length > 0) await kv.mdel(unique);
+}
+
+async function deactivateUserDevice(userId: string, deviceId: string): Promise<void> {
+  if (deviceId.startsWith('logindev:')) {
+    const hw = deviceId.slice('logindev:'.length);
+    const s = (await import('./pg_client.ts')).getSql();
+    await s`
+      UPDATE user_login_devices SET
+        status = 'pending',
+        approved_at = NULL,
+        updated_at = NOW()
+      WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${hw})
+    `;
+    const sessions = await db.getAllSessionsForUser(userId);
+    for (const sess of sessions) {
+      if (sess.hardware_id && hardwareIdsMatch(sess.hardware_id, hw)) {
+        await db.setSessionActive(userId, String(sess.device_id), false);
+        await kv.del(`session:${userId}:${String(sess.device_id)}`);
+      }
+    }
+    await purgeKvSessionsForUserDevice(userId, { hardwareId: hw });
+  } else if (!deviceId.startsWith('primary:')) {
+    await db.setSessionActive(userId, deviceId, false);
+    await kv.del(`session:${userId}:${deviceId}`);
+    await purgeKvSessionsForUserDevice(userId, { deviceId });
+  }
+
+  const sqlActive = await db.getActiveSessions(userId);
+  await userDataPatchActiveSessions(userId, sqlActive.length);
+}
+
+function normalizeAdminDeviceId(deviceId: string, hardwareId?: string | null): string {
+  const id = String(deviceId ?? '').trim();
+  if (id.startsWith('logindev:') || id.startsWith('primary:')) return id;
+  const hw = String(hardwareId ?? '').trim();
+  if (hw) return `logindev:${hw}`;
+  return id;
+}
+
+async function endWebPresenceForDevice(userId: string, deviceId: string): Promise<void> {
+  if (!deviceId.startsWith('web_')) return;
+  const s = getSql();
+  await s`
+    UPDATE web_presence_sessions
+    SET ended_at = NOW(), end_reason = 'admin_device_remove'
+    WHERE user_id = ${userId}::uuid
+      AND device_id = ${deviceId}
+      AND ended_at IS NULL
+  `;
+}
+
+function resolveRemoveTargetKey(
+  deviceId: string,
+  hardwareId?: string | null,
+): string | null {
+  const hw = normalizeHardwareKey(
+    hardwareId ??
+      (deviceId.startsWith('logindev:') ? deviceId.slice('logindev:'.length) : null),
+  );
+  if (hw) return `logindev:${hw}`;
+  const id = String(deviceId ?? '').trim();
+  return id || null;
+}
+
+function deviceStillListed(
+  devices: AdminDeviceRow[],
+  targetKey: string | null,
+): boolean {
+  if (!targetKey) return false;
+  return devices.some((d) => d.id === targetKey || d.deviceId === targetKey);
+}
+
+async function removeUserDevice(
+  userId: string,
+  deviceId: string,
+  hardwareId?: string | null,
+): Promise<void> {
+  deviceId = normalizeAdminDeviceId(deviceId, hardwareId);
+  const userData = await kv.get(`user:${userId}`);
+  const row = await db.getUserById(userId);
+
+  if (deviceId.startsWith('logindev:')) {
+    const hw = deviceId.slice('logindev:'.length);
+    const s = (await import('./pg_client.ts')).getSql();
+    await s`
+      DELETE FROM user_login_devices
+      WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${hw})
+    `;
+    await purgeKvSessionsForUserDevice(userId, { hardwareId: hw });
+    await db.deleteSessionTokensByHardwareId(userId, hw);
+    await db.deleteSessionsByHardwareId(userId, hw);
+    await db.clearRegisteredHardwareIfMatch(userId, hw);
+    if (
+      userData &&
+      (hardwareIdsMatch(userData.hardwareId, hw) ||
+        hardwareIdsMatch(userData.registeredDeviceId, hw))
+    ) {
+      userData.hardwareId = null;
+      userData.registeredDeviceId = null;
+      userData.registeredAt = null;
+      await kv.set(`user:${userId}`, userData);
+    } else if (row?.registered_hardware_id && hardwareIdsMatch(row.registered_hardware_id, hw)) {
+      if (userData) {
+        userData.hardwareId = null;
+        userData.registeredDeviceId = null;
+        userData.registeredAt = null;
+        await kv.set(`user:${userId}`, userData);
+      }
+    }
+  } else if (deviceId.startsWith('primary:')) {
+    const hw = deviceId.slice('primary:'.length);
+    if (userData) {
+      if (userData.hardwareId === hw || userData.registeredDeviceId === hw) {
+        userData.hardwareId = null;
+        userData.registeredDeviceId = null;
+        userData.registeredAt = null;
+        await kv.set(`user:${userId}`, userData);
+      }
+    }
+    await db.clearRegisteredHardware(userId);
+    await purgeKvSessionsForUserDevice(userId, { hardwareId: hw });
+  } else {
+    const sessions = await db.getAllSessionsForUser(userId);
+    const match = sessions.find(
+      (s: { device_id: string; hardware_id?: string }) => s.device_id === deviceId,
+    );
+    await db.deleteSession(userId, deviceId);
+    await kv.del(`session:${userId}:${deviceId}`);
+    await endWebPresenceForDevice(userId, deviceId);
+    await purgeKvSessionsForUserDevice(userId, {
+      deviceId,
+      hardwareId: match?.hardware_id ? String(match.hardware_id) : null,
+    });
+    const sessHw = match?.hardware_id ? String(match.hardware_id) : null;
+    if (sessHw) {
+      const s = getSql();
+      await s`
+        DELETE FROM user_login_devices
+        WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${sessHw})
+      `;
+      await db.clearRegisteredHardwareIfMatch(userId, sessHw);
+    }
+    if (!deviceId.startsWith('web_') && !deviceId.includes(':')) {
+      const s = getSql();
+      await s`
+        DELETE FROM user_login_devices
+        WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${deviceId})
+      `;
+    }
+
+    if (
+      userData &&
+      match?.hardware_id &&
+      (hardwareIdsMatch(userData.hardwareId, match.hardware_id) ||
+        hardwareIdsMatch(userData.registeredDeviceId, match.hardware_id))
+    ) {
+      userData.hardwareId = null;
+      userData.registeredDeviceId = null;
+      userData.registeredAt = null;
+      await db.clearRegisteredHardwareIfMatch(userId, String(match.hardware_id));
+      await kv.set(`user:${userId}`, userData);
+    }
+  }
 }
 
 async function adminForceLogoutUser(userId: string) {
@@ -493,18 +744,14 @@ export async function requireAdmin(c: any, next: any) {
     }
     user = { id: active.sub, username: active.username };
   } else {
-    // CMS kayıt (slayt vb.): jti tüketmeden doğrula — ardışık Kaydet + liste 401 olmasın
+    // Yönetim paneli yazma: jti tüketme — Kaydet + cihaz sil vb. ardışık istekler 401 olmasın
     const path = String(c.req.path || '');
-    const isCmsWrite =
-      path.includes('/admin/cms/hero-slides') ||
-      path.includes('/admin/cms/info-pages') ||
-      path.includes('/admin/cms/upload-image') ||
-      path.includes('/admin/settings');
+    const isAdminPanelWrite = path.includes('/make-server-47081311/admin/');
 
-    if (isCmsWrite) {
+    if (isAdminPanelWrite) {
       const active = await jwtAuth.verifyAccessTokenActive(accessToken);
       if (!active) {
-        console.error('❌ requireAdmin: Geçersiz JWT (CMS yazma)');
+        console.error('❌ requireAdmin: Geçersiz JWT (admin yazma)');
         return c.json({
           error: 'Unauthorized - Invalid token',
           errorCode: 'TOKEN_INVALID',
@@ -704,6 +951,14 @@ export function setupAdminEndpoints(app: Hono) {
           const userId = item.key.replace('user:', '');
           const plan = planForAdminUi(userData);
           const pgRow = pgById.get(userId);
+          const lp =
+            pgRow?.legacy_profile && typeof pgRow.legacy_profile === 'object'
+              ? (pgRow.legacy_profile as { expiresAt?: string | null })
+              : {};
+          const expiresAt =
+            plan === 'admin'
+              ? null
+              : (userData.expiresAt ?? lp.expiresAt ?? null) || null;
 
           return {
             id: userId,
@@ -713,7 +968,7 @@ export function setupAdminEndpoints(app: Hono) {
             role: userData.role || 'user',
             plan,
             createdAt: userData.createdAt || new Date().toISOString(),
-            expiresAt: userData.expiresAt,
+            expiresAt,
             downloadCount: userData.downloadCount || 0,
             activeSessions: userData.activeSessions || 0,
             maxSessions: maxSessionsForUser(userData, pgRow),
@@ -877,10 +1132,14 @@ export function setupAdminEndpoints(app: Hono) {
         return c.json({ error: 'Şifre en az 6 karakter olmalı' }, 400);
       }
 
-      const userData = await kv.get(`user:${userId}`);
+      const pgRowEarly = await db.getUserById(userId);
+      let userData = await kv.get(`user:${userId}`);
 
       if (!userData) {
-        return c.json({ error: 'Kullanıcı bulunamadı' }, 404);
+        if (!pgRowEarly) {
+          return c.json({ error: 'Kullanıcı bulunamadı' }, 404);
+        }
+        userData = rebuildUserKvFromPgRow(userId, pgRowEarly);
       }
 
       const roleVal = plan === 'admin' ? 'admin' : 'user';
@@ -911,8 +1170,32 @@ export function setupAdminEndpoints(app: Hono) {
         userData.expiresAt = null;
       }
 
+      const pgRow = pgRowEarly ?? (await db.getUserById(userId));
+      const prevLp =
+        pgRow?.legacy_profile && typeof pgRow.legacy_profile === 'object'
+          ? (pgRow.legacy_profile as Record<string, unknown>)
+          : {};
+
       try {
-        await db.updateUser(userId, { name, role: roleVal, plan: sqlPlan });
+        await db.updateUser(userId, {
+          name,
+          role: roleVal,
+          plan: sqlPlan,
+          legacy_profile: {
+            ...prevLp,
+            kvRole: userData.role,
+            kvPlan: userData.plan,
+            maxSessions: userData.maxSessions,
+            downloadLimit: userData.downloadLimit,
+            expiresAt: userData.expiresAt ?? null,
+            downloadCount: userData.downloadCount,
+            activeSessions: userData.activeSessions,
+            lastLoginAt: userData.lastLoginAt,
+            downloadsToday: userData.downloadsToday,
+            registeredDeviceId: userData.registeredDeviceId,
+            registeredAt: userData.registeredAt,
+          },
+        });
         if (password) {
           await db.updateUserPassword(userId, await pwd.hashPassword(password));
         }
@@ -963,6 +1246,10 @@ export function setupAdminEndpoints(app: Hono) {
       if (!userData && !row) {
         return c.json({ error: 'Kullanıcı bulunamadı' }, 404);
       }
+      const lp =
+        row?.legacy_profile && typeof row.legacy_profile === 'object'
+          ? (row.legacy_profile as { expiresAt?: string | null })
+          : {};
       const merged = {
         id: userId,
         username: userData?.username ?? row?.username ?? 'N/A',
@@ -971,7 +1258,7 @@ export function setupAdminEndpoints(app: Hono) {
         role: userData?.role ?? row?.role ?? 'user',
         plan: userData ? planForAdminUi(userData) : row?.role === 'admin' ? 'admin' : row?.plan ?? 'free',
         createdAt: userData?.createdAt ?? row?.created_at,
-        expiresAt: userData?.expiresAt ?? null,
+        expiresAt: userData?.expiresAt ?? lp.expiresAt ?? null,
         downloadCount: userData?.downloadCount ?? 0,
         activeSessions: userData?.activeSessions ?? 0,
         maxSessions: maxSessionsForUser(userData, row),
@@ -1035,6 +1322,61 @@ export function setupAdminEndpoints(app: Hono) {
     }
   });
 
+  /** Cihaz pasife al — deviceId gövdede (sabit yol :deviceId'den önce) */
+  app.post(
+    '/make-server-47081311/admin/users/:userId/devices/deactivate',
+    requireAdmin,
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = await c.req.json().catch(() => ({}));
+        const deviceId = String(body.deviceId ?? '').trim();
+        const hardwareId = body.hardwareId != null ? String(body.hardwareId).trim() : null;
+        if (!deviceId) return c.json({ error: 'deviceId gerekli' }, 400);
+        await deactivateUserDevice(userId, normalizeAdminDeviceId(deviceId, hardwareId));
+        return c.json({ success: true, devices: await listAdminUserDevices(userId) });
+      } catch (error) {
+        console.error('Error deactivating device:', error);
+        return c.json({ error: 'Cihaz pasife alınamadı' }, 500);
+      }
+    },
+  );
+
+  /** Cihaz sil — deviceId gövdede (sabit yol :deviceId'den önce) */
+  app.post(
+    '/make-server-47081311/admin/users/:userId/devices/remove',
+    requireAdmin,
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = await c.req.json().catch(() => ({}));
+        const deviceId = String(body.deviceId ?? '').trim();
+        const hardwareId = body.hardwareId != null ? String(body.hardwareId).trim() : null;
+        if (!deviceId) return c.json({ error: 'deviceId gerekli' }, 400);
+        const targetKey = resolveRemoveTargetKey(deviceId, hardwareId);
+        await removeUserDevice(userId, deviceId, hardwareId);
+        try {
+          const sqlActive = await db.getActiveSessions(userId);
+          await userDataPatchActiveSessions(userId, sqlActive.length);
+        } catch (patchErr) {
+          console.warn('activeSessions patch after remove:', patchErr);
+        }
+        const devices = await listAdminUserDevices(userId);
+        if (targetKey && deviceStillListed(devices, targetKey)) {
+          return c.json(
+            { error: 'Cihaz veritabanından silinemedi. API yeniden deneyin veya Tüm kilidi sıfırla kullanın.', devices },
+            409,
+          );
+        }
+        return c.json({ success: true, devices });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error('Error deleting device:', msg, error);
+        return c.json({ error: 'Cihaz silinemedi', detail: msg }, 500);
+      }
+    },
+  );
+
   /**
    * Cihazı onayla (birincil donanım kilidi)
    */
@@ -1070,7 +1412,7 @@ export function setupAdminEndpoints(app: Hono) {
   );
 
   /**
-   * Cihazı pasife al (oturumu kapat, kilidi koru)
+   * Cihazı pasife al (oturumu kapat; logindev kaydını onaysız bırak)
    */
   app.post(
     '/make-server-47081311/admin/users/:userId/devices/:deviceId/deactivate',
@@ -1079,15 +1421,7 @@ export function setupAdminEndpoints(app: Hono) {
       try {
         const userId = c.req.param('userId');
         const deviceId = decodeURIComponent(c.req.param('deviceId'));
-
-        if (!deviceId.startsWith('primary:')) {
-          await db.setSessionActive(userId, deviceId, false);
-          await kv.del(`session:${userId}:${deviceId}`);
-        }
-
-        const sqlActive = await db.getActiveSessions(userId);
-        await userDataPatchActiveSessions(userId, sqlActive.length);
-
+        await deactivateUserDevice(userId, deviceId);
         return c.json({ success: true, devices: await listAdminUserDevices(userId) });
       } catch (error) {
         console.error('Error deactivating device:', error);
@@ -1106,47 +1440,9 @@ export function setupAdminEndpoints(app: Hono) {
       try {
         const userId = c.req.param('userId');
         const deviceId = decodeURIComponent(c.req.param('deviceId'));
-        const userData = await kv.get(`user:${userId}`);
-
-        if (deviceId.startsWith('logindev:')) {
-          const hw = deviceId.slice('logindev:'.length);
-          await loginApproval.rejectLoginDevice(userId, hw);
-          const s = (await import('./pg_client.ts')).getSql();
-          await s`
-            DELETE FROM user_login_devices
-            WHERE user_id = ${userId}::uuid AND hardware_id = ${hw}
-          `;
-        } else if (deviceId.startsWith('primary:')) {
-          const hw = deviceId.slice('primary:'.length);
-          if (userData) {
-            if (userData.hardwareId === hw || userData.registeredDeviceId === hw) {
-              userData.hardwareId = null;
-              userData.registeredDeviceId = null;
-              userData.registeredAt = null;
-              await kv.set(`user:${userId}`, userData);
-            }
-          }
-          await db.clearRegisteredHardware(userId);
-        } else {
-          const sessions = await db.getAllSessionsForUser(userId);
-          const match = sessions.find((s: { device_id: string; hardware_id?: string }) => s.device_id === deviceId);
-          await db.deleteSession(userId, deviceId);
-          await kv.del(`session:${userId}:${deviceId}`);
-
-          if (
-            userData &&
-            match?.hardware_id &&
-            (userData.hardwareId === match.hardware_id ||
-              userData.registeredDeviceId === match.hardware_id)
-          ) {
-            userData.hardwareId = null;
-            userData.registeredDeviceId = null;
-            userData.registeredAt = null;
-            await db.clearRegisteredHardware(userId);
-            await kv.set(`user:${userId}`, userData);
-          }
-        }
-
+        const body = await c.req.json().catch(() => ({}));
+        const hardwareId = body.hardwareId != null ? String(body.hardwareId).trim() : null;
+        await removeUserDevice(userId, deviceId, hardwareId);
         return c.json({ success: true, devices: await listAdminUserDevices(userId) });
       } catch (error) {
         console.error('Error deleting device:', error);
@@ -1343,7 +1639,8 @@ export function setupAdminEndpoints(app: Hono) {
           b.down,
           b.asama,
           b.tarih,
-          b.boyut
+          b.boyut,
+          b.bildiri
         FROM bilgi b
         WHERE ${conditions}
         ORDER BY b.tarih DESC NULLS LAST, b.id DESC
@@ -1380,6 +1677,7 @@ export function setupAdminEndpoints(app: Hono) {
           listCategoryName,
           altkat: file.altkat != null ? String(file.altkat) : '',
           boyutRaw: file.boyut != null ? String(file.boyut) : '',
+          bildiri: file.bildiri != null ? String(file.bildiri) : '',
           downloadCount: file.down || 0,
           isPremium: !!(file.asama && String(file.asama).trim() !== ''),
           createdAt: file.tarih || new Date().toISOString(),
@@ -1418,10 +1716,17 @@ export function setupAdminEndpoints(app: Hono) {
    */
   app.post('/make-server-47081311/admin/files/create', requireAdmin, async (c) => {
     try {
-      const { name, downloadUrl, categoryId, altkat, boyut } = await c.req.json();
+      const body = await c.req.json();
+      const { name, downloadUrl, categoryId, altkat, boyut, tarih, isImage } = body;
       const linkToSave = gdrive.normalizeDriveUrlToUsercontent(downloadUrl) || downloadUrl;
       const altkatVal = typeof altkat === 'string' ? altkat : '';
       const boyutVal = boyut != null && boyut !== '' ? String(boyut) : '';
+      const bildiriVal = isImage === true || isImage === 'true' ? 'RESİM' : 'İNDİRİN';
+      let tarihVal: Date | null = null;
+      if (typeof tarih === 'string' && tarih.trim()) {
+        const parsed = new Date(tarih);
+        if (!Number.isNaN(parsed.getTime())) tarihVal = parsed;
+      }
 
       const sql = getSql();
       const cid = parseInt(String(categoryId), 10);
@@ -1442,7 +1747,7 @@ export function setupAdminEndpoints(app: Hono) {
       }
 
       const rows = await sql`
-        INSERT INTO bilgi (adi, link, katid, altkat, asama, down, tarih, boyut)
+        INSERT INTO bilgi (adi, link, katid, altkat, asama, down, tarih, boyut, bildiri)
         VALUES (
           ${name},
           ${linkToSave},
@@ -1450,8 +1755,9 @@ export function setupAdminEndpoints(app: Hono) {
           ${altkatVal},
           ${''},
           0,
-          NOW(),
-          ${boyutVal}
+          ${tarihVal ?? new Date()},
+          ${boyutVal},
+          ${bildiriVal}
         )
         RETURNING *
       `;
@@ -1478,10 +1784,17 @@ export function setupAdminEndpoints(app: Hono) {
   app.put('/make-server-47081311/admin/files/:fileId', requireAdmin, async (c) => {
     try {
       const fileId = c.req.param('fileId');
-      const { name, downloadUrl, categoryId, altkat, boyut } = await c.req.json();
+      const body = await c.req.json();
+      const { name, downloadUrl, categoryId, altkat, boyut, tarih, isImage } = body;
       const linkToSave = gdrive.normalizeDriveUrlToUsercontent(downloadUrl) || downloadUrl;
       const altkatVal = typeof altkat === 'string' ? altkat : '';
       const boyutVal = boyut != null && boyut !== '' ? String(boyut) : '';
+      const bildiriVal = isImage === true || isImage === 'true' ? 'RESİM' : 'İNDİRİN';
+      let tarihVal: Date | null = null;
+      if (typeof tarih === 'string' && tarih.trim()) {
+        const parsed = new Date(tarih);
+        if (!Number.isNaN(parsed.getTime())) tarihVal = parsed;
+      }
 
       const sql = getSql();
       const cid = parseInt(String(categoryId), 10);
@@ -1509,7 +1822,9 @@ export function setupAdminEndpoints(app: Hono) {
           katid = ${String(categoryId)},
           altkat = ${altkatVal},
           boyut = ${boyutVal},
-          asama = ${''}
+          bildiri = ${bildiriVal},
+          asama = ${''},
+          tarih = COALESCE(${tarihVal}, tarih)
         WHERE id = ${fid}
         RETURNING *
       `;
@@ -1898,9 +2213,14 @@ export function setupAdminEndpoints(app: Hono) {
       const imageUrl = String(body.imageUrl ?? '');
       const gradient = String(body.gradient ?? 'from-blue-900 via-purple-900 to-pink-900');
       const isActive = body.isActive !== false;
+      let createdAtVal: Date | null = null;
+      if (typeof body.createdAt === 'string' && body.createdAt.trim()) {
+        const parsed = new Date(body.createdAt);
+        if (!Number.isNaN(parsed.getTime())) createdAtVal = parsed;
+      }
       const rows = await sql`
-        INSERT INTO cms_hero_slides (sort_order, title, subtitle, description, button_text, button_url, image_url, gradient, is_active)
-        VALUES (${sortOrder}, ${title}, ${subtitle}, ${description}, ${buttonText}, ${buttonUrl}, ${imageUrl}, ${gradient}, ${isActive})
+        INSERT INTO cms_hero_slides (sort_order, title, subtitle, description, button_text, button_url, image_url, gradient, is_active, created_at)
+        VALUES (${sortOrder}, ${title}, ${subtitle}, ${description}, ${buttonText}, ${buttonUrl}, ${imageUrl}, ${gradient}, ${isActive}, ${createdAtVal ?? new Date()})
         RETURNING id
       `;
       return c.json({ success: true, id: rows[0]?.id });
@@ -1926,6 +2246,11 @@ export function setupAdminEndpoints(app: Hono) {
       const imageUrl = String(body.imageUrl ?? '');
       const gradient = String(body.gradient ?? 'from-blue-900 via-purple-900 to-pink-900');
       const isActive = !!body.isActive;
+      let createdAtVal: Date | null = null;
+      if (typeof body.createdAt === 'string' && body.createdAt.trim()) {
+        const parsed = new Date(body.createdAt);
+        if (!Number.isNaN(parsed.getTime())) createdAtVal = parsed;
+      }
       await sql`
         UPDATE cms_hero_slides SET
           sort_order = ${sortOrder},
@@ -1937,6 +2262,7 @@ export function setupAdminEndpoints(app: Hono) {
           image_url = ${imageUrl},
           gradient = ${gradient},
           is_active = ${isActive},
+          created_at = COALESCE(${createdAtVal}, created_at),
           updated_at = NOW()
         WHERE id = ${id}::uuid
       `;
@@ -2109,7 +2435,8 @@ export function setupAdminEndpoints(app: Hono) {
 
       const target = String(form.get('target') || 'slide').trim().toLowerCase();
       const isCategory = target === 'category' || target === 'kategori';
-      const subDir = isCategory ? 'kategori' : 'slayt';
+      const isPricing = target === 'pricing' || target === 'paket' || target === 'fiyat';
+      const subDir = isCategory ? 'kategori' : isPricing ? 'paket' : 'slayt';
       const uploadDir = `${Deno.cwd()}/public/img/${subDir}`;
       await Deno.mkdir(uploadDir, { recursive: true });
       const bytes = new Uint8Array(await filePart.arrayBuffer());
@@ -2319,6 +2646,30 @@ export function setupAdminEndpoints(app: Hono) {
       return c.json({ error: 'Durum güncellenemedi' }, 500);
     }
   });
+
+  const deleteFileRequestHandler = async (c: { req: { param: (k: string) => string }; json: (body: unknown, status?: number) => Response }) => {
+    try {
+      const id = String(c.req.param('id') ?? '').trim();
+      if (!id) return c.json({ error: 'id gerekli' }, 400);
+      const sql = getSql();
+      const rows = await sql`
+        DELETE FROM file_requests WHERE id = ${id}::uuid RETURNING id
+      `;
+      if (!rows?.length) return c.json({ error: 'İstek bulunamadı' }, 404);
+      return c.json({ success: true });
+    } catch (error) {
+      console.error('admin file-requests delete:', error);
+      return c.json({ error: 'İstek silinemedi' }, 500);
+    }
+  };
+
+  /** DELETE bazı proxy’lerde sorun çıkarabiliyor; sabit POST yolu */
+  app.post(
+    '/make-server-47081311/admin/file-requests/:id/delete',
+    requireAdmin,
+    deleteFileRequestHandler,
+  );
+  app.delete('/make-server-47081311/admin/file-requests/:id', requireAdmin, deleteFileRequestHandler);
 
   app.get('/make-server-47081311/cms/image/:fileName', async (c) => {
     try {

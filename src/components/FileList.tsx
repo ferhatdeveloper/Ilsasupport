@@ -11,14 +11,20 @@ import {
 } from '../utils/secureApi';
 import { readResponseJson } from '../utils/readResponseJson';
 import { AdminDownloadersModal } from './AdminDownloadersModal';
-import { buildGoogleDriveDirectDownloadUrl, extractGoogleDriveFileId } from '../utils/googleDrive';
+import {
+  buildGoogleDriveDirectDownloadUrl,
+  buildGoogleDriveViewUrl,
+  extractGoogleDriveFileId,
+} from '../utils/googleDrive';
 import {
   getDownloadIframeFrameProps,
   looksLikeRasterImageFilename,
   openPreparedDownloadExternally,
+  openGoogleDriveImageInNewTab,
+  openRasterImageDirectView,
   resolvePreparedModalFrameUrl,
-  shouldForceIframeDriveDownloadFlow,
 } from '../utils/startPreparedDownload';
+import { shouldOpenAsGoogleDriveImage } from '../utils/bilgiImageFlag';
 import { openUrlInSystemBrowser } from '../utils/electronBrowser';
 import { isElectronShell } from '../utils/secureApi';
 import { GridIconMedia } from './GridIconMedia';
@@ -66,6 +72,7 @@ export function FileList({
   const [downloadModalFile, setDownloadModalFile] = useState(null as {
     id: string;
     name: string;
+    notification?: string | null;
     driveFileId?: string | null;
     driveUrl?: string;
   } | null);
@@ -85,14 +92,6 @@ export function FileList({
   const [listFetchError, setListFetchError] = useState('');
   const listFiltersKey = `${brandId ?? ''}|${categoryId ?? ''}|${subcategoryId ?? ''}|${searchTerm.trim()}`;
   const lastListKeyRef = useRef<string | null>(null);
-  const imageBlobUrlRef = useRef<string | null>(null);
-
-  const clearImageBlobUrl = useCallback(() => {
-    if (imageBlobUrlRef.current) {
-      URL.revokeObjectURL(imageBlobUrlRef.current);
-      imageBlobUrlRef.current = null;
-    }
-  }, []);
 
   useEffect(() => {
     if (!preparingDownload) return;
@@ -112,12 +111,6 @@ export function FileList({
   useEffect(() => {
     fetchBrandMarkaPaths().then(setMarkaPaths);
   }, []);
-
-  useEffect(() => {
-    return () => {
-      clearImageBlobUrl();
-    };
-  }, [clearImageBlobUrl]);
 
   const formatCreatedAt = (createdAt?: string) => {
     if (!createdAt) return 'Tarih yok';
@@ -308,14 +301,31 @@ export function FileList({
       return;
     }
 
+    if (shouldOpenAsGoogleDriveImage(file.name, file.notification)) {
+      const opened = await openGoogleDriveImageInNewTab({
+        fileName: file.name,
+        notification: file.notification,
+        driveFileId: typeof file.driveFileId === 'string' ? file.driveFileId : null,
+        driveUrl: file.driveWebViewUrl || file.googleDriveLink || '',
+      });
+      if (opened.ok) {
+        void authenticatedFetch(
+          `${apiFunctionsBase}/request-download?fileId=${file.id}`,
+          { method: 'POST' },
+          accessToken,
+        ).catch(() => undefined);
+        return;
+      }
+    }
+
     setDownloadModalFile({
       id: file.id,
       name: file.name,
+      notification: file.notification,
       driveFileId: typeof file.driveFileId === 'string' ? file.driveFileId : null,
       driveUrl: file.driveWebViewUrl || file.googleDriveLink || '',
     });
     setDownloadStatus('');
-    clearImageBlobUrl();
     setDownloadFrameUrl(null);
     setCountdown(30);
   };
@@ -371,6 +381,33 @@ export function FileList({
         alert(data?.error || 'İndirme hazırlığı başarısız.');
         return;
       }
+      if (
+        data.isImageEntry ||
+        shouldOpenAsGoogleDriveImage(modalFile.name, modalFile.notification)
+      ) {
+        const opened = await openRasterImageDirectView(modalFile.name, data, {
+          driveFileId: modalFile.driveFileId,
+          driveUrl: modalFile.driveUrl,
+          notification: modalFile.notification,
+        });
+        if (opened.ok) {
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        const driveId =
+          modalFile.driveFileId || extractGoogleDriveFileId(modalFile.driveUrl || '');
+        const viewUrl = driveId ? buildGoogleDriveViewUrl(driveId) : null;
+        if (viewUrl) {
+          window.open(viewUrl, '_blank', 'noopener,noreferrer');
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        alert(opened.error || 'Resim Google Drive bağlantısı açılamadı.');
+        return;
+      }
+
       if (isElectronShell()) {
         const ext = await openPreparedDownloadExternally(data);
         if (ext.ok) {
@@ -393,20 +430,12 @@ export function FileList({
 
       if (preparedUrl) {
         setDownloadFrameUrl(preparedUrl);
-        setDownloadStatus(
-          looksLikeRasterImageFilename(modalFile.name)
-            ? 'Resim modal içinde önizleniyor; kalıcı indirme için «İndir»e basın.'
-            : 'İndirme ekranı modal içinde açıldı.',
-        );
+        setDownloadStatus('İndirme ekranı modal içinde açıldı.');
         return;
       }
 
       if (applyDriveFallbackUrl(modalFile)) {
-        setDownloadStatus(
-          looksLikeRasterImageFilename(modalFile.name)
-            ? 'Resim önizlemesi için bağlantı açıldı; gerekirse «İndir»e basın.'
-            : 'İndirme fallback ile modal içinde başlatıldı.',
-        );
+        setDownloadStatus('İndirme fallback ile modal içinde başlatıldı.');
         return;
       }
       alert('İndirme başlatılamadı. Lütfen tekrar deneyin.');
@@ -418,93 +447,9 @@ export function FileList({
     }
   }, [downloadModalFile, accessToken, onShowAuth, onShowPremium]);
 
-  const startImageBlobPreview = useCallback(async () => {
-    const modalFile = downloadModalFile;
-    if (!modalFile || !getBearerForApi(accessToken)) return;
-    if (downloadFrameUrl?.startsWith('blob:')) return;
-
-    setPreparingDownload(true);
-    setDownloadStatus('');
-    try {
-      const response = await authenticatedFetch(
-        `${apiFunctionsBase}/request-download?fileId=${modalFile.id}`,
-        { method: 'POST' },
-        accessToken,
-      );
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data?.errorCode === 'LOGIN_REQUIRED') {
-          setDownloadStatus(
-            data?.error ||
-              'Oturum geçersiz. Masaüstünden «Tarayıcıdan devam et» ile yeniden giriş yapın, sonra İndir’e basın.',
-          );
-          onShowAuth();
-          return;
-        }
-        if (data?.errorCode === 'PREMIUM_REQUIRED' || String(data?.error || '').includes('Premium')) {
-          openPremiumUpsell(onShowPremium);
-          return;
-        }
-        if (data?.errorCode === 'DAILY_LIMIT_EXCEEDED') {
-          alert(data?.error || 'Günlük indirme limitiniz doldu.');
-          return;
-        }
-        alert(data?.error || 'Önizleme başlatılamadı.');
-        return;
-      }
-
-      let previewUrl = resolvePreparedModalFrameUrl(data);
-      if (!previewUrl) {
-        previewUrl = resolveDriveDirectDownloadUrl(modalFile);
-      }
-      if (!previewUrl) {
-        alert('Resim önizlemesi için bağlantı üretilemedi.');
-        return;
-      }
-
-      const blobResponse = await fetch(previewUrl);
-      if (!blobResponse.ok) {
-        throw new Error(`Blob fetch başarısız: ${blobResponse.status}`);
-      }
-      const blob = await blobResponse.blob();
-      if (!blob.type.startsWith('image/')) {
-        throw new Error(`Beklenmeyen içerik tipi: ${blob.type || 'bilinmiyor'}`);
-      }
-
-      clearImageBlobUrl();
-      const blobUrl = URL.createObjectURL(blob);
-      imageBlobUrlRef.current = blobUrl;
-      setDownloadFrameUrl(blobUrl);
-      setDownloadStatus('Resim blob olarak modal içinde gösteriliyor.');
-    } catch (error) {
-      console.error('Resim blob önizleme hatası:', error);
-      alert('Resim blob önizlemesi oluşturulamadı. Lütfen tekrar deneyin.');
-    } finally {
-      setPreparingDownload(false);
-    }
-  }, [accessToken, clearImageBlobUrl, downloadFrameUrl, downloadModalFile, onShowAuth, onShowPremium]);
-
   const handleModalDownloadClick = useCallback(() => {
-    if (isElectronShell()) {
-      void startPreparedDownload();
-      return;
-    }
-    if (downloadModalFile && looksLikeRasterImageFilename(downloadModalFile.name)) {
-      void startImageBlobPreview();
-      return;
-    }
-    if (
-      downloadFrameUrl &&
-      downloadModalFile &&
-      looksLikeRasterImageFilename(downloadModalFile.name) &&
-      !shouldForceIframeDriveDownloadFlow(downloadFrameUrl)
-    ) {
-      window.open(downloadFrameUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
     void startPreparedDownload();
-  }, [downloadFrameUrl, downloadModalFile, startImageBlobPreview, startPreparedDownload]);
+  }, [startPreparedDownload]);
 
   if (loading) {
     return (
@@ -612,7 +557,7 @@ export function FileList({
       </div>
 
       <div className="flex items-center justify-between mb-6">
-        <h3 className="ilsa-title text-xl font-semibold">
+        <h3 className="ilsa-title ilsa-file-list-heading font-semibold">
           {folderHits.length > 0 && files.length === 0
             ? 'Klasor bulundu'
             : `${listTotalFiles || files.length} Dosya Bulundu`}
@@ -716,11 +661,11 @@ export function FileList({
                 </div>
                 <div className="flex min-h-[118px] flex-1 min-w-0 flex-col justify-between">
                   <div className="flex items-center gap-2 mb-1">
-                    <h4 className="ilsa-title truncate text-lg font-semibold tracking-tight">{file.name}</h4>
+                    <h4 className="ilsa-title ilsa-file-card-title truncate font-semibold tracking-tight">{file.name}</h4>
                     {file.isPremium && <Crown className="w-4 h-4 text-yellow-500 flex-shrink-0" />}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700 dark:text-gray-300 font-medium">
+                  <div className="ilsa-file-card-meta flex flex-wrap items-center gap-2 text-gray-700 dark:text-gray-300 font-medium">
                     <span className="font-bold text-black dark:text-white">Tarih: {formatCreatedAt(file.createdAt)}</span>
                     <span className="text-gray-400">|</span>
                     <span className="font-extrabold text-green-600 dark:text-green-500">
@@ -780,16 +725,16 @@ export function FileList({
                       } disabled:opacity-50`}
                     >
                       {!(file.driveFileId || file.driveWebViewUrl || file.googleDriveLink) ? (
-                        <span className="font-semibold text-sm">Link Yok</span>
+                        <span className="ilsa-file-card-action font-semibold">Link Yok</span>
                       ) : mayDownload ? (
                         <>
                           <Download className="w-4 h-4" />
-                          <span className="font-semibold text-sm">İndir</span>
+                          <span className="ilsa-file-card-action font-semibold">İndir</span>
                         </>
                       ) : (
                         <>
                           <Lock className="w-4 h-4" />
-                          <span className="font-semibold text-sm tracking-wide">İNDİRME</span>
+                          <span className="ilsa-file-card-action font-semibold tracking-wide">İNDİRME</span>
                         </>
                       )}
                     </button>
@@ -816,9 +761,10 @@ export function FileList({
         downloadStatus={downloadStatus}
         downloadFrameUrl={downloadFrameUrl}
         onClose={() => {
-          clearImageBlobUrl();
           setDownloadModalFile(null);
           setDownloadFrameUrl(null);
+          setDownloadStatus('');
+          setPreparingDownload(false);
         }}
         frameFileName={downloadModalFile?.name ?? null}
         externalBrowserHint={isElectronShell()}

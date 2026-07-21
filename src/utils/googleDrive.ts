@@ -27,3 +27,8 @@ export function extractGoogleDriveFileId(url: string): string | null {
 export function buildGoogleDriveDirectDownloadUrl(fileId: string): string {
   return `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&authuser=0`;
 }
+
+/** Google Drive dosya önizleme sayfası (resimler için; indirme URL’si değil) */
+export function buildGoogleDriveViewUrl(fileId: string): string {
+  return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+}

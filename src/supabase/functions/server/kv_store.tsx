@@ -18,6 +18,27 @@ function deriveUsernameForPg(id: string, value: any): string {
   });
 }
 
+/** legacy_profile: yalnızca value içinde gönderilen alanlar güncellenir (giriş/oturum expiresAt silmesin) */
+function mergeLegacyProfile(
+  prevLp: Record<string, unknown>,
+  value: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const lp = { ...prevLp };
+  if (!value || typeof value !== 'object') return lp;
+  if ('role' in value) lp.kvRole = value.role;
+  if ('plan' in value) lp.kvPlan = value.plan;
+  if ('maxSessions' in value) lp.maxSessions = value.maxSessions;
+  if ('downloadLimit' in value) lp.downloadLimit = value.downloadLimit;
+  if ('expiresAt' in value) lp.expiresAt = value.expiresAt;
+  if ('downloadCount' in value) lp.downloadCount = value.downloadCount;
+  if ('activeSessions' in value) lp.activeSessions = value.activeSessions;
+  if ('lastLoginAt' in value) lp.lastLoginAt = value.lastLoginAt;
+  if ('downloadsToday' in value) lp.downloadsToday = value.downloadsToday;
+  if ('registeredDeviceId' in value) lp.registeredDeviceId = value.registeredDeviceId;
+  if ('registeredAt' in value) lp.registeredAt = value.registeredAt;
+  return lp;
+}
+
 function rowToKvUser(row: any): any {
   const lp = (row.legacy_profile && typeof row.legacy_profile === 'object') ? row.legacy_profile : {};
   const plan = row.plan || 'free';
@@ -60,27 +81,17 @@ async function upsertUserFromKv(id: string, value: any): Promise<void> {
   const s = getSql();
   const existingRows = await s`SELECT legacy_profile FROM users WHERE id = ${id}::uuid LIMIT 1`;
   const existing = existingRows[0];
-  const prevLp = (existing?.legacy_profile && typeof existing.legacy_profile === 'object') ? existing.legacy_profile : {};
+  const prevLp =
+    existing?.legacy_profile && typeof existing.legacy_profile === 'object'
+      ? (existing.legacy_profile as Record<string, unknown>)
+      : {};
 
   const roleCol = value?.role === 'admin' || value?.plan === 'admin' ? 'admin' : 'user';
   let planCol = 'free';
   if (value?.plan === 'premium' || value?.plan === 'admin') planCol = 'premium';
   if (value?.plan === 'free') planCol = 'free';
 
-  const lp = {
-    ...prevLp,
-    kvRole: value?.role,
-    kvPlan: value?.plan,
-    maxSessions: value?.maxSessions,
-    downloadLimit: value?.downloadLimit,
-    expiresAt: value?.expiresAt,
-    downloadCount: value?.downloadCount,
-    activeSessions: value?.activeSessions,
-    lastLoginAt: value?.lastLoginAt,
-    downloadsToday: value?.downloadsToday,
-    registeredDeviceId: value?.registeredDeviceId,
-    registeredAt: value?.registeredAt,
-  };
+  const lp = mergeLegacyProfile(prevLp, value);
 
   const row = {
     id,

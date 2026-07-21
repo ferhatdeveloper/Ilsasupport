@@ -3,7 +3,7 @@
  */
 import * as db from './db_helpers.tsx';
 import * as kv from './kv_store.tsx';
-import { maxSessionsFromSources } from './subscription_helpers.tsx';
+import { checkMembershipForAccess, mergeMembershipFields, maxSessionsFromSources } from './subscription_helpers.tsx';
 
 export type LoginGateResult =
   | { allowed: true }
@@ -224,6 +224,21 @@ export async function gateElectronLogin(
     };
   }
 
+  const membership = checkMembershipForAccess(
+    mergeMembershipFields(
+      userData as Record<string, unknown> | undefined,
+      row,
+    ) as { role?: string; plan?: string; expiresAt?: string | null },
+  );
+  if (!membership.allowed) {
+    return {
+      allowed: false,
+      status: membership.status,
+      error: membership.error,
+      errorCode: membership.errorCode,
+    };
+  }
+
   const hw = String(hardwareId ?? '').trim();
   if (!hw) {
     return {
@@ -252,25 +267,27 @@ export async function gateElectronLogin(
 
   const approvedCount = await countApprovedLoginDevices(userId);
 
-  if (approvedCount === 0 || approvedCount < maxSessions) {
-    await approveLoginDevice(userId, hw, deviceInfo ?? { autoElectron: true }, row, userData);
-    return { allowed: true };
-  }
-
-  if (row.registered_hardware_id === hw) {
-    await approveLoginDevice(userId, hw, deviceInfo ?? { syncFromRegistered: true }, row, userData);
-    return { allowed: true };
-  }
-
   await upsertPendingLoginDevice(userId, hw, deviceInfo);
   const shortHw = hw.length > 12 ? `${hw.slice(0, 8)}…${hw.slice(-4)}` : hw;
+  if (approvedCount >= maxSessions) {
+    return {
+      allowed: false,
+      status: 403,
+      error:
+        `Bu hesap için en fazla ${maxSessions} onaylı cihaz kullanılabilir. Yönetici panelinde «${shortHw}» cihazını onaylatın veya pasif oturumu kapatın.`,
+      errorCode: 'HARDWARE_MISMATCH',
+      registeredDevice: row.registered_device_info,
+      pendingHardwareId: hw,
+      maxSessions,
+    };
+  }
+
   return {
     allowed: false,
     status: 403,
     error:
-      `Bu hesap için en fazla ${maxSessions} onaylı cihaz kullanılabilir. Yönetici panelinde «${shortHw}» cihazını onaylatın veya pasif oturumu kapatın.`,
-    errorCode: 'HARDWARE_MISMATCH',
-    registeredDevice: row.registered_device_info,
+      `Bu cihaz henüz onaylanmadı (${shortHw}). Yönetici panelinden cihaz onayı verilene kadar giriş yapılamaz.`,
+    errorCode: 'DEVICE_PENDING_APPROVAL',
     pendingHardwareId: hw,
     maxSessions,
   };
@@ -294,6 +311,22 @@ export async function gateWebLogin(
       errorCode: 'LOGIN_PENDING_APPROVAL',
     };
   }
+
+  const membership = checkMembershipForAccess(
+    mergeMembershipFields(
+      userData as Record<string, unknown> | undefined,
+      row,
+    ) as { role?: string; plan?: string; expiresAt?: string | null },
+  );
+  if (!membership.allowed) {
+    return {
+      allowed: false,
+      status: membership.status,
+      error: membership.error,
+      errorCode: membership.errorCode,
+    };
+  }
+
   return { allowed: true };
 }
 

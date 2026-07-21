@@ -12,11 +12,17 @@ import {
   getDownloadIframeFrameProps,
   looksLikeRasterImageFilename,
   openPreparedDownloadExternally,
+  openGoogleDriveImageInNewTab,
+  openRasterImageDirectView,
   resolvePreparedModalFrameUrl,
-  shouldForceIframeDriveDownloadFlow,
 } from '../utils/startPreparedDownload';
+import { shouldOpenAsGoogleDriveImage } from '../utils/bilgiImageFlag';
 import { openUrlInSystemBrowser } from '../utils/electronBrowser';
-import { buildGoogleDriveDirectDownloadUrl, extractGoogleDriveFileId } from '../utils/googleDrive';
+import {
+  buildGoogleDriveDirectDownloadUrl,
+  buildGoogleDriveViewUrl,
+  extractGoogleDriveFileId,
+} from '../utils/googleDrive';
 import '../styles/modern-pages.css';
 
 type FavoriteRow = {
@@ -26,6 +32,7 @@ type FavoriteRow = {
   driveFileId?: string | null;
   googleDriveLink?: string;
   driveWebViewUrl?: string;
+  notification?: string | null;
   createdAt: string;
 };
 
@@ -53,6 +60,7 @@ interface FavoritesPageProps {
 type ModalFile = {
   id: string;
   name: string;
+  notification?: string | null;
   driveFileId?: string | null;
   driveUrl?: string;
 };
@@ -157,7 +165,7 @@ export function FavoritesPage({
   const hasDriveSource = (item: FavoriteRow) =>
     !!(item.driveFileId || item.driveWebViewUrl || item.googleDriveLink);
 
-  const handleOpenDownload = (item: FavoriteRow) => {
+  const handleOpenDownload = async (item: FavoriteRow) => {
     if (!premium) {
       openPremiumUpsell(onShowPremium);
       return;
@@ -166,9 +174,29 @@ export function FavoritesPage({
       alert('Bu dosya i\u00e7in indirme ba\u011flant\u0131s\u0131 bulunamad\u0131.');
       return;
     }
+
+    const fileName = item.fileName || `Dosya #${item.fileId}`;
+    if (shouldOpenAsGoogleDriveImage(fileName, item.notification)) {
+      const opened = await openGoogleDriveImageInNewTab({
+        fileName,
+        notification: item.notification,
+        driveFileId: item.driveFileId ?? null,
+        driveUrl: item.driveWebViewUrl || item.googleDriveLink || '',
+      });
+      if (opened.ok) {
+        void authenticatedFetch(
+          `${apiFunctionsBase}/request-download?fileId=${item.fileId}`,
+          { method: 'POST' },
+          accessToken,
+        ).catch(() => undefined);
+        return;
+      }
+    }
+
     setDownloadModalFile({
       id: String(item.fileId),
-      name: item.fileName || `Dosya #${item.fileId}`,
+      name: fileName,
+      notification: item.notification,
       driveFileId: item.driveFileId ?? null,
       driveUrl: item.driveWebViewUrl || item.googleDriveLink || '',
     });
@@ -217,6 +245,33 @@ export function FavoritesPage({
         alert(data?.error || '\u0130ndirme haz\u0131rl\u0131\u011f\u0131 ba\u015far\u0131s\u0131z.');
         return;
       }
+      if (
+        data.isImageEntry ||
+        shouldOpenAsGoogleDriveImage(modalFile.name, modalFile.notification)
+      ) {
+        const opened = await openRasterImageDirectView(modalFile.name, data, {
+          driveFileId: modalFile.driveFileId,
+          driveUrl: modalFile.driveUrl,
+          notification: modalFile.notification,
+        });
+        if (opened.ok) {
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        const driveId =
+          modalFile.driveFileId || extractGoogleDriveFileId(modalFile.driveUrl || '');
+        const viewUrl = driveId ? buildGoogleDriveViewUrl(driveId) : null;
+        if (viewUrl) {
+          window.open(viewUrl, '_blank', 'noopener,noreferrer');
+          setDownloadModalFile(null);
+          setDownloadFrameUrl(null);
+          return;
+        }
+        alert(opened.error || 'Resim Google Drive ba\u011flant\u0131s\u0131 a\u00e7\u0131lamad\u0131.');
+        return;
+      }
+
       if (isElectronShell()) {
         const ext = await openPreparedDownloadExternally(data);
         if (ext.ok) {
@@ -242,11 +297,7 @@ export function FavoritesPage({
       const preparedUrl = resolvePreparedModalFrameUrl(data);
       if (preparedUrl) {
         setDownloadFrameUrl(preparedUrl);
-        setDownloadStatus(
-          looksLikeRasterImageFilename(modalFile.name)
-            ? 'Resim modal i\u00e7inde \u00f6nizleniyor; kal\u0131c\u0131 indirme i\u00e7in \u00ab\u0130ndir\u00bbe bas\u0131n.'
-            : '\u0130ndirme ekran\u0131 modal i\u00e7inde a\u00e7\u0131ld\u0131.',
-        );
+        setDownloadStatus('\u0130ndirme ekran\u0131 modal i\u00e7inde a\u00e7\u0131ld\u0131.');
         return;
       }
       if (applyDriveFallbackUrl(modalFile)) {
@@ -263,21 +314,8 @@ export function FavoritesPage({
   }, [downloadModalFile, accessToken, onSignIn, onShowPremium]);
 
   const handleModalDownloadClick = useCallback(() => {
-    if (isElectronShell()) {
-      void startPreparedDownload();
-      return;
-    }
-    if (
-      downloadFrameUrl &&
-      downloadModalFile &&
-      looksLikeRasterImageFilename(downloadModalFile.name) &&
-      !shouldForceIframeDriveDownloadFlow(downloadFrameUrl)
-    ) {
-      window.open(downloadFrameUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
     void startPreparedDownload();
-  }, [downloadFrameUrl, downloadModalFile, startPreparedDownload]);
+  }, [startPreparedDownload]);
 
   return (
     <div className="ilsa-page">
@@ -418,6 +456,7 @@ export function FavoritesPage({
           setDownloadModalFile(null);
           setDownloadFrameUrl(null);
           setDownloadStatus('');
+          setPreparingDownload(false);
         }}
         onStartDownload={handleModalDownloadClick}
         getFrameProps={getDownloadIframeFrameProps}

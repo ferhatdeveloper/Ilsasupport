@@ -1,13 +1,14 @@
 #Requires -Version 5.1
 <#
-  WinSW / servis icin API kumesi — 2 Deno worker (8787-8788), cikis yapilmaz (ust process canli kalir).
+  ILSA Support API — Deno worker cluster (WinSW servisi).
+  Tek cluster örneği; canlılık port dinlemesi ile kontrol edilir.
 #>
 param(
-  [int]$Workers = 4,
+  [int]$Workers = 1,
   [int]$BasePort = 8787
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $deno = Join-Path $root 'tools\deno\deno.exe'
 if (-not (Test-Path $deno)) {
@@ -16,48 +17,76 @@ if (-not (Test-Path $deno)) {
 if (-not (Test-Path $deno)) { throw "Deno yok: $deno" }
 if (-not (Test-Path (Join-Path $root '.env.local'))) { throw '.env.local yok' }
 
-$ports = $BasePort..($BasePort + $Workers - 1)
-$script:children = New-Object System.Collections.ArrayList
+# Aynı anda yalnızca bir cluster yöneticisi
+$mutexName = 'Global\ILSA-Support-API-Cluster'
+$script:clusterMutex = New-Object System.Threading.Mutex($false, $mutexName)
+if (-not $script:clusterMutex.WaitOne(0, $false)) {
+  Write-Host '[cluster] Baska cluster ornegi calisiyor, cikiliyor.'
+  exit 0
+}
 
-function Stop-Workers {
-  foreach ($p in @($script:children)) {
-    if ($p -and -not $p.HasExited) {
-      Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+$ports = @($BasePort..($BasePort + $Workers - 1))
+
+function Test-PortListening([int]$port) {
+  $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+  return $listeners.Count -gt 0
+}
+
+function Stop-PortListener([int]$port) {
+  $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+  foreach ($l in $listeners) {
+    $listenerPid = [int]$l.OwningProcess
+    if ($listenerPid -gt 0) {
+      Write-Host "[cluster] Port $port PID $listenerPid sonlandiriliyor"
+      Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
     }
   }
-  [void]$script:children.Clear()
 }
 
-function Start-Workers {
-  Stop-Workers
-  foreach ($port in $ports) {
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $deno
-    $psi.Arguments = 'run -A --env-file=.env.local src/supabase/functions/server/index.tsx'
-    $psi.WorkingDirectory = $root
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    [void]$psi.EnvironmentVariables['PORT']
-    $psi.EnvironmentVariables['PORT'] = "$port"
-    $psi.EnvironmentVariables['ILSA_RUN_SCHEMA_ENSURE'] = if ($port -eq $BasePort) { '1' } else { '0' }
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    [void]$script:children.Add($proc)
-    Write-Host "[cluster] worker PID $($proc.Id) port $port"
+function Wait-PortFree([int]$port, [int]$maxSec = 8) {
+  for ($i = 0; $i -lt ($maxSec * 4); $i++) {
+    if (-not (Test-PortListening $port)) { return $true }
+    Start-Sleep -Milliseconds 250
   }
+  return -not (Test-PortListening $port)
 }
 
-trap {
-  Stop-Workers
-  break
+function Start-Worker([int]$port) {
+  if (Test-PortListening $port) {
+    return
+  }
+  Stop-PortListener $port
+  Wait-PortFree $port | Out-Null
+
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $deno
+  $psi.Arguments = 'run -A --env-file=.env.local src/supabase/functions/server/index.tsx'
+  $psi.WorkingDirectory = $root
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  [void]$psi.EnvironmentVariables['PORT']
+  $psi.EnvironmentVariables['PORT'] = "$port"
+  $psi.EnvironmentVariables['ILSA_RUN_SCHEMA_ENSURE'] = if ($port -eq $BasePort) { '1' } else { '0' }
+  $proc = [System.Diagnostics.Process]::Start($psi)
+  Write-Host "[cluster] worker PID $($proc.Id) port $port"
+  Start-Sleep -Milliseconds 800
 }
 
-Start-Workers
+foreach ($port in $ports) {
+  Stop-PortListener $port
+  Wait-PortFree $port | Out-Null
+}
+
+foreach ($port in $ports) {
+  Start-Worker $port
+}
 
 while ($true) {
-  Start-Sleep -Seconds 15
-  $dead = @($script:children) | Where-Object { $_.HasExited }
-  if ($dead) {
-    Write-Host "[cluster] $($dead.Count) worker durdu, yeniden baslatiliyor..."
-    Start-Workers
+  Start-Sleep -Seconds 20
+  foreach ($port in $ports) {
+    if (-not (Test-PortListening $port)) {
+      Write-Host "[cluster] Port $port kapali, worker baslatiliyor..."
+      Start-Worker $port
+    }
   }
 }

@@ -37,15 +37,15 @@ const CATEGORY_PRESET: CmsImagePreset = {
   hint: 'Kare (1:1), 400×400 px olarak kaydedilir.',
 };
 
-/** Paket kartı — max ~440px genişlik, 4:3 */
+/** Paket kartı — kare kutu görseli */
 const PRICING_PRESET: CmsImagePreset = {
   label: 'Paket görseli',
-  aspectRatio: 4 / 3,
-  outputWidth: 880,
-  outputHeight: 660,
+  aspectRatio: 1,
+  outputWidth: 400,
+  outputHeight: 400,
   mimeType: 'image/jpeg',
   quality: 0.88,
-  hint: '4:3 oran, 880×660 px. Paket sayfasında object-contain ile gösterilir.',
+  hint: 'Kare (1:1), 400×400 px olarak kaydedilir.',
 };
 
 export const CMS_IMAGE_PRESETS: Record<CmsImageTarget, CmsImagePreset> = {

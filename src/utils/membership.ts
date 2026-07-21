@@ -1,10 +1,10 @@
 import { getBearerForApi } from './secureApi';
 
 /**
- * Demo "Upgrade to Premium" popup ve premium indirme kilidi.
- * false = pasif (giriş yapan kullanıcılar indirebilir, popup açılmaz).
+ * Premium satış popup ve indirme kilidi.
+ * true = yalnızca premium/admin indirebilir.
  */
-export const PREMIUM_UPSELL_ENABLED = false;
+export const PREMIUM_UPSELL_ENABLED = true;
 
 /** Premium satış popup'ını aç (pasifken hiçbir şey yapmaz) */
 export function openPremiumUpsell(onShowPremium?: () => void): void {
@@ -26,8 +26,8 @@ export function isPremiumMember(
   if (!user) return false;
   if (user.role === 'admin' || user.plan === 'admin') return true;
   if (user.plan !== 'premium') return false;
-  const ex = user.expiresAt;
-  if (!ex) return true;
+  const ex = readMembershipExpiresAt(user);
+  if (!ex) return false;
   return new Date(ex).getTime() > Date.now();
 }
 

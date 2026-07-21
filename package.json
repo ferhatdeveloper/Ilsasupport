@@ -70,7 +70,7 @@
           "windows:firewall-dev": "powershell -ExecutionPolicy Bypass -File scripts/open-dev-ports-windows.ps1",
           "diagnose:remote": "powershell -ExecutionPolicy Bypass -File scripts/diagnose-remote-dev.ps1",
           "diagnose:remote:ip": "powershell -ExecutionPolicy Bypass -File scripts/diagnose-remote-dev.ps1 -PublicIp 194.62.52.140",
-          "build": "vite build",
+          "build": "powershell -ExecutionPolicy Bypass -File scripts/build-production.ps1",
           "db:schema": "node scripts/apply-pg-schema.cjs",
           "db:migrate:hide-history": "node scripts/pg-run-single-sql.cjs sql/11_user_download_history_user_hide.sql",
           "db:promote-admin": "node scripts/promote-admin-user.cjs",

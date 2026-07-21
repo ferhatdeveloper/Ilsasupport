@@ -11,8 +11,8 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $root
 
 if ($Build) {
-  Write-Host '==> npm run build' -ForegroundColor Cyan
-  npm run build
+  Write-Host '==> build-production.ps1' -ForegroundColor Cyan
+  & (Join-Path $root 'scripts\build-production.ps1')
 }
 
 Write-Host '==> API yeniden başlatılıyor' -ForegroundColor Cyan

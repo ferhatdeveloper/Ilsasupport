@@ -12,9 +12,9 @@ export type DesktopReleaseConfig = {
 
 const DEFAULT_RELEASE: DesktopReleaseConfig = {
   requiredVersion: '1.0.3',
-  latestVersion: '1.0.3',
-  downloadPath: '/downloads/ILSA-Support-Portable-1.0.3.exe',
-  downloadUrl: 'https://ilsasupport.com/downloads/ILSA-Support-Portable-1.0.3.exe',
+  latestVersion: '1.0.6',
+  downloadPath: '/downloads/ILSA-Support-Portable-1.0.6.exe',
+  downloadUrl: 'https://ilsasupport.com/downloads/ILSA-Support-Portable-1.0.6.exe',
 };
 
 function publicWebBase(): string {

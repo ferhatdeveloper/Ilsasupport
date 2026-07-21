@@ -77,7 +77,7 @@ export function PackagePricingPage({ onBack }: PackagePricingPageProps) {
                   key={plan.id}
                   type="button"
                   onClick={openContactMessenger}
-                  className={`group relative shrink-0 w-[min(100%,440px)] rounded-2xl overflow-hidden border bg-zinc-950/30 p-0 shadow-lg transition-[transform,box-shadow] hover:scale-[1.02] hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1525] ${
+                  className={`group relative shrink-0 w-[min(100%,400px)] aspect-square rounded-2xl overflow-hidden border bg-zinc-950/30 p-0 shadow-lg transition-[transform,box-shadow] hover:scale-[1.02] hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1525] ${
                     plan.highlighted
                       ? 'border-red-500/80 ring-2 ring-red-500/25'
                       : 'border-zinc-700'
@@ -91,7 +91,9 @@ export function PackagePricingPage({ onBack }: PackagePricingPageProps) {
                   <img
                     src={src}
                     alt={plan.name || 'Paket görseli'}
-                    className="block w-full h-auto object-contain align-middle"
+                    className="block h-full w-full object-contain align-middle"
+                    width={400}
+                    height={400}
                     loading="lazy"
                     decoding="async"
                   />

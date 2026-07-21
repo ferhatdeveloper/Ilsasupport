@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { apiFunctionsBase, resolveCmsPublicAssetUrl } from '../utils/supabase/info';
 import { readResponseJson } from '../utils/readResponseJson';
 
@@ -18,7 +18,6 @@ function cssUrl(u: string): string {
 export function ModernHomeHero() {
   const [slides, setSlides] = useState<SlideRow[]>([]);
   const [index, setIndex] = useState(0);
-  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,22 +41,16 @@ export function ModernHomeHero() {
   }, []);
 
   useEffect(() => {
-    if (slides.length <= 1 || paused) return;
+    if (slides.length <= 1) return;
     const t = window.setInterval(() => {
       setIndex((i) => (i + 1) % slides.length);
     }, 5000);
     return () => window.clearInterval(t);
-  }, [slides.length, paused]);
+  }, [slides.length]);
 
   useEffect(() => {
     setIndex((prev) => (slides.length ? Math.min(prev, slides.length - 1) : 0));
   }, [slides.length]);
-
-  const goDot = useCallback((i: number) => {
-    setIndex(i);
-    setPaused(true);
-    window.setTimeout(() => setPaused(false), 12000);
-  }, []);
 
   const safeIndex = slides.length > 0 ? Math.min(index, slides.length - 1) : 0;
   const active = slides[safeIndex];
@@ -77,22 +70,7 @@ export function ModernHomeHero() {
         backgroundRepeat: 'no-repeat',
       }}
     >
-      <div className="ilsa-modern-overlay ilsa-modern-hero-overlay--bare">
-        {useRemote ? (
-          <div className="ilsa-modern-hero-dots">
-            {slides.map((_, i) => (
-              <button
-                key={slides[i]?.id ?? i}
-                type="button"
-                className={`ilsa-modern-dot${i === safeIndex ? ' ilsa-modern-active-dot' : ''}`}
-                onClick={() => goDot(i)}
-                aria-label={`Slayt ${i + 1}`}
-                style={{ cursor: 'pointer', border: 'none', padding: 0 }}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <div className="ilsa-modern-overlay ilsa-modern-hero-overlay--bare" />
     </section>
   );
 }

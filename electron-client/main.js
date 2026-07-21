@@ -76,11 +76,29 @@ async function openUrlInDefaultBrowser(url) {
   }
 }
 
+function getHardwareIdFile() {
+  return path.join(app.getPath('userData'), 'hardware-id.txt');
+}
+
 function getHardwareId() {
   try {
     return machineIdSync({ original: true });
   } catch {
-    return `hw-fallback-${Date.now()}`;
+    const fp = getHardwareIdFile();
+    try {
+      const saved = fs.readFileSync(fp, 'utf8').trim();
+      if (saved) return saved;
+    } catch {
+      /* ilk çalıştırma */
+    }
+    const fallback = `hw-fallback-${require('crypto').randomUUID()}`;
+    try {
+      fs.mkdirSync(path.dirname(fp), { recursive: true });
+      fs.writeFileSync(fp, fallback, 'utf8');
+    } catch {
+      /* ignore */
+    }
+    return fallback;
   }
 }
 
@@ -219,12 +237,17 @@ function createSplash() {
     backgroundColor: '#000000',
     resizable: false,
     center: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
     show: false,
   });
-  splashWindow.once('ready-to-show', () => splashWindow.show());
-  splashWindow.loadFile(path.join(__dirname, 'renderer', 'splash.html'));
+  splashWindow.once('ready-to-show', () => {
+    if (splashWindow && !splashWindow.isDestroyed()) splashWindow.show();
+  });
+  splashWindow.loadFile(path.join(__dirname, 'renderer', 'splash.html')).catch((err) => {
+    console.error('splash loadFile:', err);
+    closeSplash();
+  });
 }
 
 function closeSplash() {
@@ -305,12 +328,18 @@ async function downloadPortableUpdate(downloadUrl, onProgress) {
 
 function createLoginWindow() {
   closeSplash();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
   mainWindow = new BrowserWindow({
     width: 420,
     height: 640,
     backgroundColor: '#000000',
     resizable: false,
     maximizable: false,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -320,7 +349,18 @@ function createLoginWindow() {
     title: 'ILSA Support',
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'));
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      closeSplash();
+    }
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html')).catch((err) => {
+    console.error('login loadFile:', err);
+    closeSplash();
+  });
   mainWindow.webContents.once('did-finish-load', () => {
     if (
       pendingUpdateInfo?.updateAvailable &&
@@ -642,19 +682,27 @@ async function performElectronSignin(username, password) {
     const keys = ensureDeviceKeys();
     const loginSig = signLogin(keys.privateKey, user, hardwareId);
 
-    const response = await fetch(`${apiBase}/electron-signin-secure`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: user,
-        password,
-        hardwareId,
-        deviceInfo: getDeviceInfo(),
-        devicePublicKey: getPublicKeySpkiBase64Url(keys.publicSpki),
-        deviceSignature: loginSig.deviceSignature,
-        deviceSignatureTimestamp: loginSig.deviceSignatureTimestamp,
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    let response;
+    try {
+      response = await fetch(`${apiBase}/electron-signin-secure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: user,
+          password,
+          hardwareId,
+          deviceInfo: getDeviceInfo(),
+          devicePublicKey: getPublicKeySpkiBase64Url(keys.publicSpki),
+          deviceSignature: loginSig.deviceSignature,
+          deviceSignatureTimestamp: loginSig.deviceSignatureTimestamp,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const data = await response.json();
     if (!response.ok) {
@@ -737,8 +785,8 @@ async function performContinueInBrowser() {
       };
     }
     clearPendingLogin();
-    closeLoginWindow();
-    app.quit();
+    closeSplash();
+    minimizeLoginWindow();
     return { success: true, handoffUrl };
   } catch (e) {
     console.error('performContinueInBrowser:', e);
@@ -874,18 +922,56 @@ ipcMain.handle('signup', async (_event, { username, password, name }) => {
   }
 });
 
-app.whenReady().then(async () => {
+const STARTUP_LOGIN_WATCHDOG_MS = 4000;
+
+app.whenReady().then(() => {
   createSplash();
-  const ver = await checkDesktopVersion();
-  pendingUpdateInfo = ver;
-  if (!ver.ok && ver.updateRequired) {
-    createUpdateWindow(ver);
-    return;
-  }
-  if (await tryRememberedAutoLogin()) {
-    return;
-  }
-  createLoginWindow();
+
+  let loginOpened = false;
+  const openLoginOnce = () => {
+    if (loginOpened) return;
+    loginOpened = true;
+    createLoginWindow();
+  };
+
+  const watchdog = setTimeout(() => {
+    console.warn('[boot] login watchdog — sürüm kontrolü beklenmeden giriş açılıyor');
+    openLoginOnce();
+  }, STARTUP_LOGIN_WATCHDOG_MS);
+
+  void (async () => {
+    try {
+      const ver = await checkDesktopVersion();
+      pendingUpdateInfo = ver;
+      clearTimeout(watchdog);
+      if (!ver.ok && ver.updateRequired) {
+        closeSplash();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.close();
+          mainWindow = null;
+        }
+        createUpdateWindow(ver);
+        return;
+      }
+      openLoginOnce();
+      if (
+        ver.updateAvailable &&
+        !ver.updateRequired &&
+        mainWindow &&
+        !mainWindow.isDestroyed()
+      ) {
+        mainWindow.webContents.once('did-finish-load', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('optional-update', ver);
+          }
+        });
+      }
+    } catch (e) {
+      clearTimeout(watchdog);
+      console.error('checkDesktopVersion:', e);
+      openLoginOnce();
+    }
+  })();
 });
 
 app.on('window-all-closed', () => {

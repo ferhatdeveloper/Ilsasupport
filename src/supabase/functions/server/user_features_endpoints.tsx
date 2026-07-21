@@ -89,6 +89,7 @@ export function setupUserFeaturesEndpoints(app: Hono) {
             driveFileId: file?.driveFileId ?? null,
             googleDriveLink: file?.googleDriveLink ?? '',
             driveWebViewUrl: file?.driveWebViewUrl ?? '',
+            notification: file?.notification ?? null,
             createdAt: r.created_at,
           };
         }),

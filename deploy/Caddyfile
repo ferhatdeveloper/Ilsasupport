@@ -23,13 +23,31 @@ ilsasupport.com, www.ilsasupport.com {
 
 	@api path /make-server-47081311/*
 	handle @api {
-		reverse_proxy 127.0.0.1:8787 127.0.0.1:8788 127.0.0.1:8789 127.0.0.1:8790
+		reverse_proxy 127.0.0.1:8787 {
+			health_uri /make-server-47081311/health
+			health_interval 10s
+			health_timeout 5s
+			fail_duration 30s
+			max_fails 2
+			transport http {
+				read_timeout 90s
+				write_timeout 90s
+			}
+		}
 	}
 
 	@downloads path /downloads/*
 	handle @downloads {
 		root * {$ILSA_ROOT}/build
 		header Content-Disposition "attachment"
+		file_server
+	}
+
+	# CMS yüklemeleri public/img altına yazılır; build'de yoksa SPA index.html döner (kırık görsel)
+	@cms_uploads path /img/slayt/* /img/kategori/* /img/paket/*
+	handle @cms_uploads {
+		root * {$ILSA_ROOT}
+		try_files /public{path} /build{path}
 		file_server
 	}
 

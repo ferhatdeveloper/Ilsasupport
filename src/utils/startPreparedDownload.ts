@@ -1,6 +1,8 @@
 import { apiFunctionsBase } from './supabase/info';
 import { isElectronShell } from './secureApi';
 import { openUrlInSystemBrowser } from './electronBrowser';
+import { buildGoogleDriveViewUrl, extractGoogleDriveFileId } from './googleDrive';
+import { isBilgiImageEntry, looksLikeRasterImageFilename, shouldOpenAsGoogleDriveImage } from './bilgiImageFlag';
 
 /**
  * Modal içi iframe: Google / proxy indirme için GET formu üretir.
@@ -67,9 +69,7 @@ export function shouldShowDownloadUrlInIframe(url: string): boolean {
 }
 
 /** Önizleme için güvenli raster uzantılar (SVG script içerebilir; iframe kullanılır) */
-export function looksLikeRasterImageFilename(fileName: string): boolean {
-  return /\.(jpe?g|png|gif|webp|bmp|ico|avif)$/i.test(String(fileName || '').trim());
-}
+export { looksLikeRasterImageFilename } from './bilgiImageFlag';
 
 /** Google ara / virüs uyarısı veya backend tek kullanımlık indir — içerik HER ZAMAN iframe ile (img/sekme atlaması olmaz) */
 export function shouldForceIframeDriveDownloadFlow(url: string): boolean {
@@ -114,7 +114,38 @@ export type PreparedDownloadPayload = {
   downloadUrl?: string;
   /** Google Drive: modal iframe için doğrudan usercontent/indirme URL’si */
   driveIframePreviewUrl?: string;
+  /** Raster resim: Google Drive /view (indirme proxy’si değil) */
+  driveImageViewUrl?: string;
+  /** Admin «Bu resimdir» işaretli kayıt */
+  isImageEntry?: boolean;
 };
+
+export type ImageDirectViewContext = {
+  driveFileId?: string | null;
+  driveUrl?: string | null;
+  notification?: string | null;
+};
+
+function isGoogleDriveFileViewUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host.includes('drive.google.com') && /\/file\/d\//i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function resolveDriveViewUrlFromContext(ctx?: ImageDirectViewContext): string | null {
+  if (!ctx) return null;
+  const id =
+    (typeof ctx.driveFileId === 'string' && ctx.driveFileId.trim()) ||
+    (ctx.driveUrl ? extractGoogleDriveFileId(ctx.driveUrl) : null);
+  if (id) return buildGoogleDriveViewUrl(id);
+  const raw = typeof ctx.driveUrl === 'string' ? ctx.driveUrl.trim() : '';
+  if (raw && isGoogleDriveFileViewUrl(raw)) return raw;
+  return null;
+}
 
 /** Modal içi çerçeve adresi: önce Google önizleme URL’si, yoksa token proxy veya downloadUrl */
 export function resolvePreparedModalFrameUrl(data: PreparedDownloadPayload): string | null {
@@ -126,6 +157,81 @@ export function resolvePreparedModalFrameUrl(data: PreparedDownloadPayload): str
   }
   const du = typeof data.downloadUrl === 'string' ? data.downloadUrl.trim() : '';
   return du || null;
+}
+
+/**
+ * Raster resimler: yalnızca Google Drive görüntüleme (/view).
+ * /download-file veya usercontent indirme URL’si kullanılmaz.
+ */
+export function resolveImageDirectViewUrl(
+  data: PreparedDownloadPayload,
+  ctx?: ImageDirectViewContext,
+): string | null {
+  const viewFromApi =
+    typeof data.driveImageViewUrl === 'string' ? data.driveImageViewUrl.trim() : '';
+  if (viewFromApi) return viewFromApi;
+
+  const fromCtx = resolveDriveViewUrlFromContext(ctx);
+  if (fromCtx) return fromCtx;
+
+  const drivePreview =
+    typeof data.driveIframePreviewUrl === 'string' ? data.driveIframePreviewUrl.trim() : '';
+  if (drivePreview && isGoogleDriveFileViewUrl(drivePreview)) return drivePreview;
+
+  return null;
+}
+
+export async function openRasterImageDirectView(
+  fileName: string,
+  data: PreparedDownloadPayload,
+  ctx?: ImageDirectViewContext,
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const flagged =
+    data.isImageEntry === true ||
+    isBilgiImageEntry(ctx?.notification);
+  if (!flagged && !looksLikeRasterImageFilename(fileName)) {
+    return { ok: false };
+  }
+  const url = resolveImageDirectViewUrl(data, ctx);
+  if (!url) {
+    return { ok: false, error: 'Görüntüleme bağlantısı üretilemedi' };
+  }
+  if (isElectronShell()) {
+    const opened = await openUrlInSystemBrowser(url);
+    return opened.success
+      ? { ok: true, url }
+      : { ok: false, error: opened.error || 'Tarayıcı açılamadı' };
+  }
+  const tab = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!tab) {
+    return { ok: false, error: 'Açılır pencere engellendi. Tarayıcıda açılır pencerelere izin verin.' };
+  }
+  return { ok: true, url };
+}
+
+/** «Bu resimdir» veya raster: Google Drive /view yeni sekmede (modal yok) */
+export async function openGoogleDriveImageInNewTab(params: {
+  fileName: string;
+  notification?: string | null;
+  driveFileId?: string | null;
+  driveUrl?: string | null;
+}): Promise<{ ok: boolean; url?: string; error?: string }> {
+  if (!shouldOpenAsGoogleDriveImage(params.fileName, params.notification)) {
+    return { ok: false };
+  }
+  const url =
+    resolveDriveViewUrlFromContext({
+      driveFileId: params.driveFileId,
+      driveUrl: params.driveUrl,
+    }) || null;
+  if (!url) {
+    return { ok: false, error: 'Google Drive görüntüleme bağlantısı yok' };
+  }
+  return openRasterImageDirectView(
+    params.fileName,
+    { isImageEntry: true, driveImageViewUrl: url },
+    { driveFileId: params.driveFileId, driveUrl: params.driveUrl, notification: params.notification },
+  );
 }
 
 export function openDownloadPopupWindow(): Window | null {

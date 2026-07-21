@@ -2,8 +2,28 @@
  * Premium abonelik bitiş tarihi (expiresAt) ile erişim kontrolleri.
  */
 
-/** Demo premium satış / dosya kilidi — false = giriş yapan herkes indirebilir */
-export const PREMIUM_UPSELL_ENABLED = false;
+/** Demo premium satış / dosya kilidi — true = yalnızca premium/admin indirebilir */
+export const PREMIUM_UPSELL_ENABLED = true;
+
+export function mergeMembershipFields(
+  userData: Record<string, unknown> | null | undefined,
+  row?: { role?: string; plan?: string; legacy_profile?: unknown } | null,
+): Record<string, unknown> {
+  const base = userData && typeof userData === 'object' ? { ...userData } : {};
+  const lp =
+    row?.legacy_profile && typeof row.legacy_profile === 'object'
+      ? (row.legacy_profile as Record<string, unknown>)
+      : {};
+  const role = String(base.role ?? lp.kvRole ?? row?.role ?? 'user');
+  const planRaw = String(base.plan ?? lp.kvPlan ?? row?.plan ?? 'free');
+  const plan = role === 'admin' ? 'admin' : planRaw;
+  return {
+    ...base,
+    role,
+    plan,
+    expiresAt: (base.expiresAt ?? lp.expiresAt ?? null) as string | null,
+  };
+}
 
 export function isPremiumPlanActive(userData: {
   plan?: string;
@@ -13,8 +33,52 @@ export function isPremiumPlanActive(userData: {
   if (userData.role === 'admin' || userData.plan === 'admin') return true;
   if (userData.plan !== 'premium') return false;
   const ex = userData.expiresAt;
-  if (!ex) return true;
+  if (!ex) return false;
   return new Date(ex).getTime() > Date.now();
+}
+
+export type MembershipGateResult =
+  | { allowed: true }
+  | {
+      allowed: false;
+      status: 403;
+      error: string;
+      errorCode: 'MEMBERSHIP_EXPIRED' | 'PREMIUM_EXPIRY_REQUIRED';
+    };
+
+/** Premium giriş / indirme — süre dolmuş veya tanımsızsa engelle */
+export function checkMembershipForAccess(
+  userData: { role?: string; plan?: string; expiresAt?: string | null } | null | undefined,
+): MembershipGateResult {
+  if (!userData) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Oturum bilgisi alınamadı.',
+      errorCode: 'MEMBERSHIP_EXPIRED',
+    };
+  }
+  if (userData.role === 'admin' || userData.plan === 'admin') return { allowed: true };
+  if (userData.plan !== 'premium') return { allowed: true };
+
+  const ex = userData.expiresAt;
+  if (!ex) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Premium üyeliğiniz için geçerli bir bitiş tarihi yok. Yönetici ile iletişime geçin.',
+      errorCode: 'PREMIUM_EXPIRY_REQUIRED',
+    };
+  }
+  if (new Date(ex).getTime() <= Date.now()) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Premium üyeliğinizin süresi dolmuş. Yenilemek için yönetici ile iletişime geçin.',
+      errorCode: 'MEMBERSHIP_EXPIRED',
+    };
+  }
+  return { allowed: true };
 }
 
 export function effectiveMaxSessions(userData: {
@@ -93,4 +157,16 @@ export function canAccessPremiumContent(userData: {
   if (!PREMIUM_UPSELL_ENABLED) return true;
   if (userData.role === 'admin' || userData.plan === 'admin') return true;
   return userData.plan === 'premium' && isPremiumPlanActive(userData);
+}
+
+/** Free plan indirme yapamaz (premium upsell açıkken) */
+export function canUserDownloadFiles(userData: {
+  role?: string;
+  plan?: string;
+  expiresAt?: string | null;
+} | null): boolean {
+  if (!userData) return false;
+  if (!PREMIUM_UPSELL_ENABLED) return true;
+  if (userData.role === 'admin' || userData.plan === 'admin') return true;
+  return isPremiumPlanActive(userData);
 }

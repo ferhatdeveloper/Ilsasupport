@@ -42,10 +42,13 @@ import { getBrandMarkaPaths, resolveMarkaIconWithPaths } from './marka_icon_reso
 import * as setupGuard from './setup_guard.ts';
 import {
   canAccessPremiumContent,
+  canUserDownloadFiles,
+  checkMembershipForAccess,
   effectiveMaxSessions,
   maxSessionsFromSources,
   canAddSessionDevice,
   isPremiumPlanActive,
+  mergeMembershipFields,
   PREMIUM_UPSELL_ENABLED,
 } from './subscription_helpers.tsx';
 import {
@@ -64,6 +67,7 @@ if (runSchemaEnsure) {
   await ensureLoginApprovalSchema();
   await ensureFavoritesAndRequestsSchema();
   await ensureJwtRotatingSessionsSchema();
+  await ensureDesktopAppReleaseSchema();
   await ensureSearchTrgmIndexes();
   await ensureCmsContentTables(getSql());
   await ensureSiteSettingsSchema();
@@ -148,20 +152,26 @@ async function resolveRequestActor(
     if (active) {
       const uid = active.sub;
       const fromKv = await kv.get(`user:${uid}`);
-      const userData =
+      const pgRow = await db.getUserById(uid);
+      const userData = mergeMembershipFields(
         fromKv && typeof fromKv === 'object'
           ? (fromKv as Record<string, unknown>)
-          : ({ id: uid, username: active.username } as Record<string, unknown>);
+          : ({ id: uid, username: active.username } as Record<string, unknown>),
+        pgRow,
+      );
       return { userId: uid, userData };
     }
     const rotated = await jwtAuth.verifyAndRotateAccessToken(accessToken, requestMeta(c));
     if (rotated.ok) {
       const uid = rotated.sub;
       const fromKv = await kv.get(`user:${uid}`);
-      const userData =
+      const pgRow = await db.getUserById(uid);
+      const userData = mergeMembershipFields(
         fromKv && typeof fromKv === 'object'
           ? (fromKv as Record<string, unknown>)
-          : ({ id: uid, username: rotated.username } as Record<string, unknown>);
+          : ({ id: uid, username: rotated.username } as Record<string, unknown>),
+        pgRow,
+      );
       return { userId: uid, userData, newAccessToken: rotated.newToken };
     }
   }
@@ -176,7 +186,9 @@ async function resolveRequestActor(
       if (uid) {
         let userData: Record<string, unknown> = sec.user as Record<string, unknown>;
         const fromKv = await kv.get(`user:${uid}`);
+        const pgRow = await db.getUserById(uid);
         if (fromKv && typeof fromKv === 'object') userData = fromKv as Record<string, unknown>;
+        userData = mergeMembershipFields(userData, pgRow);
         return {
           userId: uid,
           userData,
@@ -606,6 +618,11 @@ async function getFilesFromJSON(filters?: {
     notification: f.bildiri,
   }));
 }
+
+// Sağlık kontrolü (Caddy / izleme — yük dengeleyici ölü worker atlar)
+app.get('/make-server-47081311/health', (c) =>
+  c.json({ ok: true, ts: new Date().toISOString() }, 200, { 'Cache-Control': 'no-store' }),
+);
 
 // ===== İLK KURULUM =====
 app.post('/make-server-47081311/setup-admin', async (c) => {
@@ -1928,19 +1945,33 @@ app.get('/make-server-47081311/verify-session', async (c) => {
     } else {
       const pgRow = await db.getUserById(user.id);
       if (pgRow) {
-        userData = {
-          ...userData,
-          role: pgRow.role ?? userData.role,
-          plan: pgRow.plan ?? userData.plan,
-          name: pgRow.name ?? userData.name,
-          email: pgRow.email ?? userData.email ?? null,
-        };
+        userData = mergeMembershipFields(userData, pgRow) as typeof userData;
         try {
-          await kv.set(`user:${user.id}`, userData);
+          await kv.set(`user:${user.id}`, {
+            ...userData,
+            role: pgRow.role ?? userData.role,
+            plan: pgRow.plan ?? userData.plan,
+            name: pgRow.name ?? userData.name,
+            email: pgRow.email ?? userData.email ?? null,
+          });
         } catch {
           /* non-fatal */
         }
       }
+    }
+
+    const membership = checkMembershipForAccess(
+      mergeMembershipFields(userData, await db.getUserById(user.id)) as {
+        role?: string;
+        plan?: string;
+        expiresAt?: string | null;
+      },
+    );
+    if (!membership.allowed) {
+      return c.json(
+        { error: membership.error, errorCode: membership.errorCode },
+        membership.status,
+      );
     }
 
     // Session kontrolü - Token KV'de var mı?
@@ -2361,9 +2392,9 @@ app.get('/make-server-47081311/latest-files', async (c) => {
       const { googleDriveLink, driveWebViewUrl, driveFileId } = mapLatestFileDriveFields(file);
 
       const infoText =
+        (file.bildiri && String(file.bildiri).trim()) ||
         (file.boyut && String(file.boyut).trim()) ||
         (file.asama && String(file.asama).trim()) ||
-        (file.bildiri && String(file.bildiri).trim()) ||
         '';
 
       return {
@@ -2381,6 +2412,7 @@ app.get('/make-server-47081311/latest-files', async (c) => {
         driveFileId,
         googleDriveLink,
         driveWebViewUrl,
+        notification: file.bildiri != null ? String(file.bildiri) : '',
       };
     });
 
@@ -2538,7 +2570,8 @@ app.post('/make-server-47081311/files/:fileId/download', async (c) => {
       const error = __auth.ok ? null : new Error('auth');
       
       if (!error && user) {
-        userData = await kv.get(`user:${user.id}`);
+        const pgRow = await db.getUserById(user.id);
+        userData = mergeMembershipFields(await kv.get(`user:${user.id}`), pgRow);
         
         // Premium dosya kontrolü (admin / aktif premium)
         if (file.isPremium) {
@@ -2552,25 +2585,14 @@ app.post('/make-server-47081311/files/:fileId/download', async (c) => {
           }
         }
 
-        // İndirme limiti kontrolü
-        if (PREMIUM_UPSELL_ENABLED && userData.plan === 'free') {
-          const today = new Date().toISOString().split('T')[0];
-          const lastReset = userData.lastDownloadReset?.split('T')[0];
-          
-          if (today !== lastReset) {
-            userData.downloadsToday = 0;
-            userData.lastDownloadReset = new Date().toISOString();
-          }
-
-          if (userData.downloadsToday >= userData.downloadLimit) {
-            return c.json({ 
-              error: 'Günlük indirme limitiniz doldu. Premium yeliğe geçin.' 
-            }, 403);
-          }
-
-          // İndirme sayısını artır
-          userData.downloadsToday += 1;
-          await kv.set(`user:${user.id}`, userData);
+        // Free kullanıcı indirme yapamaz
+        if (PREMIUM_UPSELL_ENABLED && !canUserDownloadFiles(userData)) {
+          return c.json({
+            error: userData.plan === 'premium' && !isPremiumPlanActive(userData)
+              ? 'Premium üyeliğinizin süresi dolmuş. Yenileme sonrası tekrar deneyin.'
+              : 'İndirme yapmak için Premium üyelik gerekir.',
+            errorCode: 'PREMIUM_REQUIRED',
+          }, 403);
         }
       }
     }
@@ -3367,6 +3389,9 @@ app.post('/make-server-47081311/electron-signin-secure', async (c) => {
       securityContext
     );
 
+    const maxKeep = maxSessionsFromSources(userData, row);
+    await security.pruneStaleSessionsForHardware(userId, hardwareId, maxKeep);
+
     return c.json({
       success: true,
       oneTimeToken,
@@ -3667,32 +3692,19 @@ app.post('/make-server-47081311/download', async (c) => {
       }
     }
 
-    // İndirme limiti kontrolü (free users)
-    if (PREMIUM_UPSELL_ENABLED && userData.plan === 'free') {
-      const today = new Date().toISOString().split('T')[0];
-      const lastReset = userData.lastDownloadReset?.split('T')[0];
-      
-      if (today !== lastReset) {
-        userData.dailyDownloads = 0;
-        userData.lastDownloadReset = new Date().toISOString();
-      }
-
-      const dailyLimit = 5;
-      if (userData.dailyDownloads >= dailyLimit) {
-        return c.json({ 
-          error: `Günlük indirme limitiniz doldu (${dailyLimit}). Premium üyeliğe geçin.`,
-          errorCode: 'DAILY_LIMIT_EXCEEDED',
-          limit: dailyLimit,
-          used: userData.dailyDownloads,
-        }, 403);
-      }
-
-      // İndirme sayısını artır
-      userData.dailyDownloads += 1;
-      await kv.set(`user:${userId}`, userData);
+    if (PREMIUM_UPSELL_ENABLED && !canUserDownloadFiles(userData)) {
+      return c.json(
+        {
+          error: userData.plan === 'premium' && !isPremiumPlanActive(userData)
+            ? 'Premium üyeliğinizin süresi dolmuş. Yenileme sonrası tekrar deneyin.'
+            : 'İndirme yapmak için Premium üyelik gerekir.',
+          errorCode: 'PREMIUM_REQUIRED',
+        },
+        403,
+      );
     }
 
-    // 🔗 Link tipini tespit et (Google Drive, MediaFire, veya diğer)
+    await sql`UPDATE bilgi SET down = COALESCE(down, 0) + 1 WHERE id = ${fid}`;
     console.log('🔄 Detecting link type...');
     console.log(`📌 File download URL: ${file.downloadUrl}`);
     const isGoogleDrive = isGoogleDriveStorageUrl(file.downloadUrl);
@@ -3774,6 +3786,9 @@ app.post('/make-server-47081311/download', async (c) => {
         createdAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       });
+      const isRasterImage = fileIsImageEntry(file.name, file.notification);
+      const driveViewUrl =
+        isRasterImage && driveFileId ? gdrive.createGoogleDriveFileViewUrl(driveFileId) : undefined;
       return c.json({
         success: true,
         downloadToken,
@@ -3783,8 +3798,9 @@ app.post('/make-server-47081311/download', async (c) => {
         useDirectDownload: true,
         useBackendDriveStream: true,
         fallbackUrl: file.downloadUrl,
-        /** Modal iframe: gerçek Google usercontent sayfası (srcDoc formu yerine) */
-        driveIframePreviewUrl: directLink,
+        driveIframePreviewUrl: !isRasterImage ? driveViewUrl || directLink : undefined,
+        driveImageViewUrl: driveViewUrl,
+        isImageEntry: isRasterImage,
       });
     }
 
@@ -3849,6 +3865,7 @@ app.post('/make-server-47081311/request-download', async (c) => {
       categoryId: fileData.katid,
       subcategoryId: fileData.altkat,
       fileType: 'file',
+      notification: fileData.bildiri,
     };
     
     console.log(`✅ File found in PostgreSQL!`);
@@ -3888,29 +3905,16 @@ app.post('/make-server-47081311/request-download', async (c) => {
       }
     }
 
-    // İndirme limiti kontrolü (free users)
-    if (PREMIUM_UPSELL_ENABLED && userData.plan === 'free') {
-      const today = new Date().toISOString().split('T')[0];
-      const lastReset = String(userData.lastDownloadReset ?? '').split('T')[0];
-      
-      if (today !== lastReset) {
-        userData.dailyDownloads = 0;
-        userData.lastDownloadReset = new Date().toISOString();
-      }
-
-      const dailyLimit = 5;
-      if (userData.dailyDownloads >= dailyLimit) {
-        return c.json({ 
-          error: `Günlük indirme limitiniz doldu (${dailyLimit}). Premium üyeliğe geçin.`,
-          errorCode: 'DAILY_LIMIT_EXCEEDED',
-          limit: dailyLimit,
-          used: userData.dailyDownloads,
-        }, 403);
-      }
-
-      // İndirme sayısını artır
-      userData.dailyDownloads += 1;
-      await kv.set(`user:${userId}`, userData);
+    if (PREMIUM_UPSELL_ENABLED && !canUserDownloadFiles(userData)) {
+      return c.json(
+        {
+          error: userData.plan === 'premium' && !isPremiumPlanActive(userData)
+            ? 'Premium üyeliğinizin süresi dolmuş. Yenileme sonrası tekrar deneyin.'
+            : 'İndirme yapmak için Premium üyelik gerekir.',
+          errorCode: 'PREMIUM_REQUIRED',
+        },
+        403,
+      );
     }
 
     // 🔗 Link tipini tespit et (Google Drive, MediaFire, veya diğer)
@@ -4018,6 +4022,10 @@ app.post('/make-server-47081311/request-download', async (c) => {
 
     c.header('X-Download-Prepare-Mode', isGoogleDrive ? 'service-account-stream' : 'direct-url');
 
+    const isRasterImage = fileIsImageEntry(file.name, file.notification);
+    const driveViewUrl =
+      isRasterImage && driveFileId ? gdrive.createGoogleDriveFileViewUrl(driveFileId) : undefined;
+
     return c.json({
       success: true,
       downloadToken,
@@ -4030,10 +4038,15 @@ app.post('/make-server-47081311/request-download', async (c) => {
       downloadUrl: isGoogleDrive ? undefined : directLink,
       fallbackUrl: isGoogleDrive ? file.downloadUrl : undefined,
       /** Modal iframe içinde Google ara/indir sayfası (drive.usercontent / googleusercontent) */
-      driveIframePreviewUrl: isGoogleDrive ? directLink : undefined,
+      driveIframePreviewUrl: isGoogleDrive && !isRasterImage ? driveViewUrl || directLink : undefined,
+      /** Resim: Google Drive önizleme; indirme proxy’si kullanılmaz */
+      driveImageViewUrl: driveViewUrl,
+      isImageEntry: isRasterImage,
 
       message: isGoogleDrive
-        ? 'İndirme: sunucu üzerinden stream (Google onay sayfaları atlanır; dosya SA ile paylaşılmalı)'
+        ? isRasterImage
+          ? 'Resim Google Drive önizleme sayfasında açılacak'
+          : 'İndirme: sunucu üzerinden stream (Google onay sayfaları atlanır; dosya SA ile paylaşılmalı)'
         : 'İndirme hazır',
     });
 
@@ -4097,6 +4110,40 @@ function extractGoogleConfirmUrlFromHtml(html: string, driveFileId: string): str
   }
 
   return null;
+}
+
+function isBilgiImageNotification(bildiri: unknown): boolean {
+  const v = String(bildiri ?? '').trim().toLocaleUpperCase('tr-TR');
+  return v === 'RESİM' || v === 'RESIM' || v.includes('RESİM') || v.includes('RESIM');
+}
+
+function looksLikeRasterImageFilename(fileName: string): boolean {
+  return /\.(jpe?g|png|gif|webp|bmp|ico|avif)$/i.test(String(fileName || '').trim());
+}
+
+function fileIsImageEntry(fileName: string, bildiri: unknown): boolean {
+  return isBilgiImageNotification(bildiri) || looksLikeRasterImageFilename(fileName);
+}
+
+function mimeFromRasterFilename(fileName: string): string | null {
+  const ext = String(fileName || '').toLowerCase().match(/\.([a-z0-9]+)$/i)?.[1];
+  if (!ext) return null;
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    ico: 'image/x-icon',
+    avif: 'image/avif',
+  };
+  return map[ext] ?? null;
+}
+
+function buildFileContentDisposition(fileName: string, inline: boolean): string {
+  const mode = inline ? 'inline' : 'attachment';
+  return `${mode}; filename="${encodeURIComponent(fileName)}"`;
 }
 
 async function downloadGoogleDriveClassic(driveFileId: string): Promise<Response> {
@@ -4243,10 +4290,17 @@ app.get('/make-server-47081311/download-file/:token', async (c) => {
       console.log(`📊 Content-Length: ${driveResponse.headers.get('Content-Length')} bytes`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
+      const imageInline = looksLikeRasterImageFilename(session.fileName);
+      let contentType = driveResponse.headers.get('Content-Type') || 'application/octet-stream';
+      if (imageInline) {
+        const fromName = mimeFromRasterFilename(session.fileName);
+        if (fromName) contentType = fromName;
+      }
+
       return new Response(driveResponse.body, {
         headers: {
-          'Content-Type': driveResponse.headers.get('Content-Type') || 'application/octet-stream',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(session.fileName)}"`,
+          'Content-Type': contentType,
+          'Content-Disposition': buildFileContentDisposition(session.fileName, imageInline),
           'Content-Length': driveResponse.headers.get('Content-Length') || '',
           'Cache-Control': 'no-cache',
           'X-Download-Token': token,
@@ -4261,15 +4315,22 @@ app.get('/make-server-47081311/download-file/:token', async (c) => {
           throw new Error(`Classic download failed with status ${classicResponse.status}`);
         }
 
-        const contentType = classicResponse.headers.get('Content-Type') || 'application/octet-stream';
+        const imageInline = looksLikeRasterImageFilename(session.fileName);
+        let contentType = classicResponse.headers.get('Content-Type') || 'application/octet-stream';
+        if (imageInline) {
+          const fromName = mimeFromRasterFilename(session.fileName);
+          if (fromName) contentType = fromName;
+        }
         const contentLength = classicResponse.headers.get('Content-Length') || '';
         const contentDispositionFromDrive = classicResponse.headers.get('Content-Disposition');
 
         return new Response(classicResponse.body, {
           headers: {
             'Content-Type': contentType,
-            'Content-Disposition':
-              contentDispositionFromDrive || `attachment; filename="${encodeURIComponent(session.fileName)}"`,
+            'Content-Disposition': imageInline
+              ? buildFileContentDisposition(session.fileName, true)
+              : contentDispositionFromDrive ||
+                buildFileContentDisposition(session.fileName, false),
             'Content-Length': contentLength,
             'Cache-Control': 'no-cache',
             'X-Download-Token': token,

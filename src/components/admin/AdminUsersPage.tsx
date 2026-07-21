@@ -448,15 +448,38 @@ export function AdminUsersPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    {user.expiresAt ? (
+                    {user.plan === 'admin' ? (
+                      <span className={isDark ? 'text-gray-400' : 'text-slate-600'} title="Yönetici hesabı">
+                        Süresiz
+                      </span>
+                    ) : user.expiresAt ? (
                       <div className="text-sm">
-                        <div className={isDark ? 'text-white' : 'text-slate-900'}>{new Date(user.expiresAt).toLocaleDateString('tr-TR')}</div>
+                        <div className={isDark ? 'text-white' : 'text-slate-900'}>
+                          {new Date(user.expiresAt).toLocaleDateString('tr-TR')}
+                        </div>
                         <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
-                          {Math.ceil((new Date(user.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))} gün kaldı
+                          {Math.max(
+                            0,
+                            Math.ceil(
+                              (new Date(user.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+                            ),
+                          )}{' '}
+                          gün kaldı
                         </div>
                       </div>
+                    ) : user.plan === 'premium' ? (
+                      <span
+                        className={
+                          isDark
+                            ? 'text-xs font-medium text-amber-400'
+                            : 'text-xs font-medium text-amber-700'
+                        }
+                        title="Düzenle ile gün sayısı girin"
+                      >
+                        Süre ayarlanmamış
+                      </span>
                     ) : (
-                      <span className={isDark ? 'text-gray-400' : 'text-slate-600'}>Süresiz</span>
+                      <span className={isDark ? 'text-gray-500' : 'text-slate-500'}>—</span>
                     )}
                   </td>
                   <td className="px-6 py-4">

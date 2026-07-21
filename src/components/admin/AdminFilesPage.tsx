@@ -50,6 +50,7 @@ interface AdminBilgiFile {
   size?: number;
   altkat?: string;
   boyutRaw?: string;
+  bildiri?: string;
   createdAt: string;
 }
 
@@ -84,7 +85,22 @@ export type BilgiFormData = {
   categoryId: string;
   altkat: string;
   boyut: string;
+  tarih: string;
+  isImage: boolean;
 };
+
+function toDatetimeLocalValue(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isBilgiImageFlag(bildiri?: string): boolean {
+  const v = (bildiri || '').trim().toLocaleUpperCase('tr-TR');
+  return v === 'RESİM' || v === 'RESIM' || v.includes('RESİM') || v.includes('RESIM');
+}
 
 function categoriesWithNumericIds(categories: Category[]): Category[] {
   return categories.filter((c) => /^[0-9]+$/.test(String(c.id)));
@@ -96,7 +112,60 @@ const EMPTY_FORM: BilgiFormData = {
   categoryId: '',
   altkat: '',
   boyut: '',
+  tarih: '',
+  isImage: false,
 };
+
+const BOYUT_HISTORY_STORAGE = 'ilsa-admin-bilgi-boyut-history';
+const BOYUT_HISTORY_LEGACY = 'ilsa-admin-bilgi-last-boyut';
+const BOYUT_HISTORY_MAX = 40;
+
+function readBoyutHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(BOYUT_HISTORY_STORAGE);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const list = parsed
+          .map((v) => String(v ?? '').trim())
+          .filter(Boolean);
+        if (list.length > 0) return list.slice(0, BOYUT_HISTORY_MAX);
+      }
+    }
+    const legacy =
+      localStorage.getItem(BOYUT_HISTORY_LEGACY) ??
+      sessionStorage.getItem(BOYUT_HISTORY_LEGACY) ??
+      '';
+    if (legacy.trim()) return [legacy.trim()];
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+function pushBoyutHistory(value: string) {
+  const v = value.trim();
+  if (!v) return;
+  try {
+    const prev = readBoyutHistory().filter((x) => x !== v);
+    const next = [v, ...prev].slice(0, BOYUT_HISTORY_MAX);
+    localStorage.setItem(BOYUT_HISTORY_STORAGE, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readStoredBoyut(): string {
+  return readBoyutHistory()[0] ?? '';
+}
+
+/** Yeni kayıt sonrası formu temizler; yalnızca boyut korunur */
+function createFormAfterSave(prev: BilgiFormData): BilgiFormData {
+  return {
+    ...EMPTY_FORM,
+    boyut: prev.boyut,
+  };
+}
 
 function fileToForm(file: AdminBilgiFile): BilgiFormData {
   return {
@@ -105,6 +174,8 @@ function fileToForm(file: AdminBilgiFile): BilgiFormData {
     categoryId: file.categoryId,
     altkat: file.altkat ?? '',
     boyut: file.boyutRaw ?? '',
+    tarih: toDatetimeLocalValue(file.createdAt),
+    isImage: isBilgiImageFlag(file.bildiri),
   };
 }
 
@@ -186,6 +257,7 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
   const [formSessionKey, setFormSessionKey] = useState(0);
   const [formDirty, setFormDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [boyutHistory, setBoyutHistory] = useState<string[]>(() => readBoyutHistory());
   const editorPanelRef = useRef<HTMLDivElement>(null);
 
   const numericCategories = categoriesWithNumericIds(categories);
@@ -315,10 +387,10 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
   };
 
   const openCreate = () => {
-    let initial = { ...EMPTY_FORM };
+    let initial = { ...EMPTY_FORM, boyut: readStoredBoyut() };
     if (filterCategory !== 'all' && /^[0-9]+$/.test(filterCategory)) {
       const sel = resolveSelectionFromBilgi(categoryRows, filterCategory, filterCategory);
-      initial = { ...EMPTY_FORM, ...bilgiFieldsFromSelection(sel.mainId, sel.subId, sel.leafId) };
+      initial = { ...initial, ...bilgiFieldsFromSelection(sel.mainId, sel.subId, sel.leafId) };
     }
     setPanelMode('create');
     setSelectedFile(null);
@@ -377,12 +449,18 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
           categoryId: formData.categoryId,
           altkat: formData.altkat,
           boyut: formData.boyut,
+          tarih: formData.tarih ? new Date(formData.tarih).toISOString() : undefined,
+          isImage: formData.isImage,
         }),
       });
 
       await response.json().catch(() => ({}));
 
       if (response.ok) {
+        if (formData.boyut.trim()) {
+          pushBoyutHistory(formData.boyut);
+          setBoyutHistory(readBoyutHistory());
+        }
         toast.success(
           isCreate ? 'Bilgi kaydı eklendi — form temizlendi, yeni kayıt ekleyebilirsiniz' : 'Kayıt güncellendi',
         );
@@ -391,7 +469,7 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
         if (isCreate) {
           setPanelMode('create');
           setSelectedFile(null);
-          setFormData({ ...EMPTY_FORM });
+          setFormData(createFormAfterSave(formData));
           setFormSessionKey((k) => k + 1);
           scrollToEditor();
         } else if (selectedFile) {
@@ -556,6 +634,7 @@ export function AdminFilesPage(_props: AdminFilesPageProps) {
               mode={panelMode === 'create' ? 'create' : 'edit'}
               file={selectedFile}
               formData={formData}
+              boyutHistory={boyutHistory}
               categoryRows={categoryRows}
               saving={saving}
               formDirty={formDirty}
@@ -775,6 +854,7 @@ function BilgiEditorPanel({
   mode,
   file,
   formData,
+  boyutHistory,
   categoryRows,
   saving,
   formDirty,
@@ -788,6 +868,7 @@ function BilgiEditorPanel({
   mode: 'create' | 'edit';
   file: AdminBilgiFile | null;
   formData: BilgiFormData;
+  boyutHistory: string[];
   categoryRows: CategoryRow[];
   saving: boolean;
   formDirty: boolean;
@@ -903,15 +984,46 @@ function BilgiEditorPanel({
             fieldClass={fieldClass}
             hintClass={hintClass}
           />
-          <div className="mt-3">
-            <label className={labelClass}>Boyut (metin, opsiyonel)</label>
-            <input
-              type="text"
-              value={formData.boyut}
-              onChange={(e) => onChange({ boyut: e.target.value })}
-              className={fieldClass}
-              placeholder="örn. 125000000"
-            />
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className={labelClass}>Ekleme tarihi</label>
+              <input
+                type="datetime-local"
+                value={formData.tarih}
+                onChange={(e) => onChange({ tarih: e.target.value })}
+                className={fieldClass}
+              />
+              <p className={hintClass}>Boş bırakılırsa kayıt anındaki tarih kullanılır.</p>
+            </div>
+            <label className={`flex items-center gap-2 cursor-pointer ${isDark ? 'text-gray-200' : 'text-slate-800'}`}>
+              <input
+                type="checkbox"
+                checked={formData.isImage}
+                onChange={(e) => onChange({ isImage: e.target.checked })}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm font-medium">Bu resimdir</span>
+            </label>
+            <div>
+              <label className={labelClass}>Boyut (metin, opsiyonel)</label>
+              <input
+                type="text"
+                list="bilgi-boyut-gecmis"
+                value={formData.boyut}
+                onChange={(e) => onChange({ boyut: e.target.value })}
+                className={fieldClass}
+                placeholder="örn. 125000000"
+                autoComplete="off"
+              />
+              <datalist id="bilgi-boyut-gecmis">
+                {boyutHistory.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+              {boyutHistory.length > 0 ? (
+                <p className={hintClass}>Alana tıklayınca daha önce yazdığınız boyutlar listelenir.</p>
+              ) : null}
+            </div>
           </div>
         </section>
 

@@ -184,8 +184,8 @@ export async function ensureDesktopAppReleaseSchema(): Promise<void> {
       CREATE TABLE IF NOT EXISTS desktop_app_release (
         id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
         required_version TEXT NOT NULL DEFAULT '1.0.0',
-        latest_version TEXT NOT NULL DEFAULT '1.0.3',
-        download_path TEXT NOT NULL DEFAULT '/downloads/ILSA-Support-Portable-1.0.3.exe',
+        latest_version TEXT NOT NULL DEFAULT '1.0.6',
+        download_path TEXT NOT NULL DEFAULT '/downloads/ILSA-Support-Portable-1.0.6.exe',
         release_notes TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -199,14 +199,13 @@ export async function ensureDesktopAppReleaseSchema(): Promise<void> {
       UPDATE desktop_app_release
       SET
         required_version = '1.0.3',
-        latest_version = '1.0.3',
-        download_path = '/downloads/ILSA-Support-Portable-1.0.3.exe',
+        latest_version = '1.0.6',
+        download_path = '/downloads/ILSA-Support-Portable-1.0.6.exe',
         updated_at = NOW()
       WHERE id = 1
         AND (
-          latest_version IS DISTINCT FROM '1.0.3'
-          OR required_version IS DISTINCT FROM '1.0.3'
-          OR download_path IS DISTINCT FROM '/downloads/ILSA-Support-Portable-1.0.3.exe'
+          latest_version IS DISTINCT FROM '1.0.6'
+          OR download_path IS DISTINCT FROM '/downloads/ILSA-Support-Portable-1.0.6.exe'
         )
     `);
     console.log('[schema] desktop_app_release hazır');

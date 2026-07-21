@@ -1,6 +1,6 @@
 {
     "name":  "ilsa-support-desktop",
-    "version":  "1.0.3",
+    "version":  "1.0.6",
     "description":  "ILSA Support — masaüstü giriş (cihaz kilidi)",
     "main":  "main.js",
     "author":  "ILSA Support",
@@ -15,7 +15,7 @@
                   "appId":  "com.ilsasupport.desktop",
                   "productName":  "ILSA Support",
                   "directories":  {
-                                      "output":  "release-package-1.0.3"
+                                      "output":  "release-package-1.0.6"
                                   },
                   "electronDist":  "../tools/electron-dist",
                   "electronVersion":  "28.3.3",

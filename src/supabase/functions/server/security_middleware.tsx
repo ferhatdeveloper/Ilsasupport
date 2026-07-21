@@ -3,6 +3,7 @@
  */
 import * as kv from './kv_store.tsx';
 import * as deviceSig from './device_signature.tsx';
+import * as db from './db_helpers.tsx';
 
 export type SessionData = {
   sessionId: string;
@@ -273,6 +274,53 @@ export async function revokeAllSessionsForUser(userId: string): Promise<number> 
     removed++;
   }
   return removed;
+}
+
+/** Aynı donanımdan biriken eski oturumları temizle (yalnızca KV + SQL yedek kayıtları) */
+export async function pruneStaleSessionsForHardware(
+  userId: string,
+  hardwareId: string,
+  keepLatest = 1,
+): Promise<number> {
+  const uid = String(userId ?? '').trim();
+  const hw = String(hardwareId ?? '').trim();
+  if (!uid || !hw) return 0;
+
+  const keep = Math.max(1, Math.floor(keepLatest));
+  const prefix = `session:${uid}:`;
+  const entries = await kv.getByPrefix(prefix);
+  const matching: { key: string; sessionId: string; lastActivity: number }[] = [];
+
+  for (const entry of entries) {
+    const key = String(entry?.key ?? '');
+    if (!key.startsWith(prefix) || key.startsWith('session:token:')) continue;
+    const v = entry.value ?? {};
+    const entryHw = v.hardwareId != null ? String(v.hardwareId).trim() : '';
+    if (entryHw !== hw) continue;
+    const sessionId = key.slice(prefix.length);
+    const last = v.lastActivity ? new Date(String(v.lastActivity)).getTime() : 0;
+    matching.push({ key, sessionId, lastActivity: last });
+  }
+
+  matching.sort((a, b) => b.lastActivity - a.lastActivity);
+  const toRemove = matching.slice(keep);
+  for (const row of toRemove) {
+    await invalidateSession(uid, row.sessionId);
+  }
+
+  const sqlRows = await db.getAllSessionsForUser(uid);
+  const sqlForHw = sqlRows
+    .filter((r: { hardware_id?: string | null }) => r.hardware_id && String(r.hardware_id) === hw)
+    .sort(
+      (a: { last_activity?: string }, b: { last_activity?: string }) =>
+        new Date(String(b.last_activity ?? 0)).getTime() -
+        new Date(String(a.last_activity ?? 0)).getTime(),
+    );
+  for (const row of sqlForHw.slice(keep)) {
+    await db.deleteSession(uid, String(row.device_id));
+  }
+
+  return toRemove.length + Math.max(0, sqlForHw.length - keep);
 }
 
 export async function validateSecureRequest(c: {

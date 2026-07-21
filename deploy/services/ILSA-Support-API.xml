@@ -1,7 +1,7 @@
 <service>
   <id>ILSA-Support-API</id>
   <name>ILSA Support API (Deno)</name>
-  <description>ILSA Support — Deno API kumesi (8787-8790, 4 worker)</description>
+  <description>ILSA Support — Deno API (8787, tek worker)</description>
   <env name="ILSA_ROOT" value="C:\ilsasupport" />
   <executable>powershell.exe</executable>
   <arguments>-NoProfile -ExecutionPolicy Bypass -File C:\ilsasupport\scripts\run-api-cluster-service.ps1</arguments>

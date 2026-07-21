@@ -123,6 +123,8 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'esnext',
       outDir: 'build',
+      /** build/downloads/*.exe kilitliyken tüm outDir silinmesin (Caddy /downloads) */
+      emptyOutDir: false,
       rollupOptions: {
         output: {
           manualChunks(id) {

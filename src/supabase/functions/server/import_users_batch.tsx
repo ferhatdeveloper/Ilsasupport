@@ -199,7 +199,8 @@ function computeExpiresAt(
   registrationDate: Date | null | undefined,
 ): string | null {
   if (roleVal === 'admin' || planVal === 'admin') return null;
-  const days = membershipDays;
+  let days = membershipDays;
+  if ((days == null || days <= 0) && planVal === 'premium') days = 30;
   if (days == null || days <= 0) return null;
   const base = registrationDate ?? new Date();
   const start = new Date(base);

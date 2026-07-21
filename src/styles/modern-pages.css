@@ -171,6 +171,47 @@
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
 }
 
+/* En Yeniler + ana klasör dosya listesi: metin bir tık küçük */
+[data-file-list] .ilsa-file-card-title,
+.ilsa-page-latest-files .ilsa-file-card-title {
+  font-size: 0.9375rem !important;
+  line-height: 1.35;
+}
+
+[data-file-list] .ilsa-file-card-meta,
+.ilsa-page-latest-files .ilsa-file-card-meta {
+  font-size: 0.6875rem !important;
+  line-height: 1.4;
+}
+
+[data-file-list] .ilsa-file-list-heading {
+  font-size: 1.0625rem !important;
+  line-height: 1.35;
+}
+
+[data-file-list] .ilsa-file-card-action {
+  font-size: 0.8125rem !important;
+}
+
+/* YENİ rozeti — .ilsa-modern-frame img { max-width:100% } kuralını geçersiz kıl */
+.ilsa-page-latest-files .yeni-file-badge-img {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: 110px !important;
+  height: 36px !important;
+  max-height: 36px !important;
+  object-fit: contain;
+}
+
+.ilsa-folder-grid-name {
+  font-size: 0.8125rem !important;
+  line-height: 1.3;
+}
+
+.ilsa-folder-grid-meta {
+  font-size: 0.6875rem !important;
+}
+
 /* En Yeniler: tamamen keskin köşe */
 .ilsa-page-home-compat .ilsa-surface,
 .ilsa-page-home-compat .rounded-sm,

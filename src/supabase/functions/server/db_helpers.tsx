@@ -197,6 +197,20 @@ export async function clearRegisteredHardware(userId: string) {
   `;
 }
 
+export async function clearRegisteredHardwareIfMatch(userId: string, hardwareId: string) {
+  const s = sql();
+  const hw = String(hardwareId ?? '').trim();
+  if (!hw) return;
+  await s`
+    UPDATE users SET
+      registered_hardware_id = NULL,
+      registered_device_info = NULL,
+      registered_at = NULL,
+      updated_at = NOW()
+    WHERE id = ${userId}::uuid AND LOWER(registered_hardware_id) = LOWER(${hw})
+  `;
+}
+
 // ===== SESSION İŞLEMLERİ =====
 
 export async function createSession(data: {
@@ -260,6 +274,33 @@ export async function setSessionActive(userId: string, deviceId: string, isActiv
 export async function deleteSession(userId: string, deviceId: string) {
   const s = sql();
   await s`DELETE FROM sessions WHERE user_id = ${userId}::uuid AND device_id = ${deviceId}`;
+}
+
+export async function deleteSessionsByHardwareId(userId: string, hardwareId: string) {
+  const s = sql();
+  const hw = String(hardwareId ?? '').trim();
+  if (!hw) return;
+  await s`
+    DELETE FROM sessions
+    WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${hw})
+  `;
+}
+
+/** Oturum token kayıtları — donanım kimliğine göre (büyük/küçük harf duyarsız) */
+export async function deleteSessionTokensByHardwareId(userId: string, hardwareId: string) {
+  const s = sql();
+  const hw = String(hardwareId ?? '').trim();
+  if (!hw) return;
+  const rows = (await s`
+    SELECT device_id FROM sessions
+    WHERE user_id = ${userId}::uuid AND LOWER(hardware_id) = LOWER(${hw})
+  `) as Array<{ device_id: string }>;
+  const ids = rows.map((r) => String(r.device_id)).filter(Boolean);
+  if (ids.length === 0) return;
+  await s`
+    DELETE FROM session_token_lookup
+    WHERE user_id = ${userId}::uuid AND device_id = ANY(${ids}::text[])
+  `;
 }
 
 export async function deleteAllSessions(userId: string) {

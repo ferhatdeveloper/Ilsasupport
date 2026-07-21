@@ -23,6 +23,8 @@ export async function uploadCmsImage(file: File, target: CmsImageTarget): Promis
   formData.append('file', file);
   if (preset.uploadTarget === 'category') {
     formData.append('target', 'category');
+  } else if (target === 'pricing') {
+    formData.append('target', 'pricing');
   }
 
   const res = await adminFetch(`${apiFunctionsBase}/admin/cms/upload-image`, {

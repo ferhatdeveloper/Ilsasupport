@@ -25,6 +25,11 @@ export function createUsercontentDirectDownloadUrl(fileId: string): string {
   return `https://drive.usercontent.google.com/download?${q.toString()}`;
 }
 
+/** Resim önizleme: Google Drive dosya sayfası (indirme değil) */
+export function createGoogleDriveFileViewUrl(fileId: string): string {
+  return `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view`;
+}
+
 /**
  * Bilinen Drive URL’lerini veya düz dosya kimliğini
  * `https://drive.usercontent.google.com/download?id=…&export=download&authuser=0` biçimine çevirir.

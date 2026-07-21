@@ -131,9 +131,13 @@ export function DownloadModal({
             ? 'İndirme hazırlandığında dosya varsayılan tarayıcınızda (Chrome/Edge) açılır; uygulama içi önizleme kullanılmaz.'
             : 'Dosya Google ara sayfasına gitmeden, bu sayfada tarayıcı indirmesi olarak başlatılacak.'}{' '}
           Büyük dosyalarda hazırlanma süresi 10-30 saniye sürebilir.
-          {useRasterImgPreview ? (
+          {frameFileName && looksLikeRasterImageFilename(frameFileName) ? (
             <span className="block mt-1 text-gray-600">
-              Görsel dosyalar için önizleme aşağıda gösterilir; kaydetmek için «İndir»e basın.
+              Görsel dosyalar «Görüntüle» ile Google Drive önizleme sayfasında açılır (doğrudan indirme değil).
+            </span>
+          ) : useRasterImgPreview ? (
+            <span className="block mt-1 text-gray-600">
+              Görsel önizleme aşağıda; kaydetmek için «İndir»e basın.
             </span>
           ) : null}
         </p>
@@ -161,7 +165,6 @@ export function DownloadModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={preparingDownload}
             className="flex-1 py-3 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-900 font-medium transition-colors"
           >
             Kapat
@@ -173,7 +176,17 @@ export function DownloadModal({
             className="download-action-btn flex-1 py-3 rounded-lg font-semibold shadow transition-colors inline-flex items-center justify-center gap-2"
           >
             <Download className="w-4 h-4" />
-            <span>{preparingDownload ? 'Hazırlanıyor...' : downloadFrameUrl ? 'Yeniden hazırla' : 'İndir'}</span>
+            <span>
+              {preparingDownload
+                ? 'Hazırlanıyor...'
+                : frameFileName && looksLikeRasterImageFilename(frameFileName)
+                  ? downloadFrameUrl
+                    ? 'Yeniden aç'
+                    : 'Görüntüle'
+                  : downloadFrameUrl
+                    ? 'Yeniden hazırla'
+                    : 'İndir'}
+            </span>
           </button>
         </div>
 

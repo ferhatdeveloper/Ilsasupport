@@ -17,7 +17,37 @@ type HeroSlide = {
   imageUrl: string;
   gradient: string;
   isActive: boolean;
+  createdAt?: string;
+  isSquareImage?: boolean;
 };
+
+const SQUARE_SLIDE_GRADIENT = 'square-image';
+
+function toDatetimeLocalValue(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function slideFromApi(s: Partial<HeroSlide> & { id: string }): HeroSlide {
+  const gradient = s.gradient ?? 'from-blue-900 via-purple-900 to-pink-900';
+  return {
+    id: String(s.id),
+    sortOrder: Number(s.sortOrder) || 0,
+    title: s.title ?? '',
+    subtitle: s.subtitle ?? '',
+    description: s.description ?? '',
+    buttonText: s.buttonText ?? '',
+    buttonUrl: s.buttonUrl ?? '',
+    imageUrl: s.imageUrl ?? '',
+    gradient,
+    isActive: s.isActive !== false,
+    createdAt: s.createdAt ? String(s.createdAt) : undefined,
+    isSquareImage: gradient === SQUARE_SLIDE_GRADIENT,
+  };
+}
 
 type InfoPage = {
   id: string;
@@ -96,18 +126,7 @@ export function AdminContentPage() {
       const data = parseJsonOrThrow(await res.text(), 'Slayt yanıtı JSON değil');
       if (!res.ok) throw new Error([data.error, data.detail].filter(Boolean).join(' — ') || 'Yükleme hatası');
       setSlides(
-        (data.slides || []).map((s: Partial<HeroSlide> & { id: string }) => ({
-          id: String(s.id),
-          sortOrder: Number(s.sortOrder) || 0,
-          title: s.title ?? '',
-          subtitle: s.subtitle ?? '',
-          description: s.description ?? '',
-          buttonText: s.buttonText ?? '',
-          buttonUrl: s.buttonUrl ?? '',
-          imageUrl: s.imageUrl ?? '',
-          gradient: s.gradient ?? 'from-blue-900 via-purple-900 to-pink-900',
-          isActive: s.isActive !== false,
-        })),
+        (data.slides || []).map((s: Partial<HeroSlide> & { id: string }) => slideFromApi(s)),
       );
     } catch (e: unknown) {
       setSlideError(e instanceof Error ? e.message : String(e));
@@ -160,8 +179,9 @@ export function AdminContentPage() {
         buttonText: s.buttonText,
         buttonUrl: s.buttonUrl,
         imageUrl: s.imageUrl,
-        gradient: s.gradient,
+        gradient: s.isSquareImage ? SQUARE_SLIDE_GRADIENT : s.gradient,
         isActive: s.isActive,
+        createdAt: s.createdAt ? new Date(s.createdAt).toISOString() : undefined,
       };
       const isNew = s.id.startsWith('new-');
       const url = isNew
@@ -191,7 +211,7 @@ export function AdminContentPage() {
       const slide = slides.find((x) => x.id === slideId);
       if (!slide) throw new Error('Slayt bulunamadı');
 
-      const imageUrl = await uploadCmsImage(file, 'slide');
+      const imageUrl = await uploadCmsImage(file, slide.isSquareImage ? 'category' : 'slide');
 
       const updated: HeroSlide = { ...slide, imageUrl };
       updateSlideLocal(slideId, { imageUrl });
@@ -427,6 +447,19 @@ export function AdminContentPage() {
                       onChange={(e) => updateSlideLocal(s.id, { buttonUrl: e.target.value })}
                     />
                   </label>
+                  <label className={`text-xs ${mutedClass} block`}>
+                    Ekleme tarihi
+                    <input
+                      type="datetime-local"
+                      className={inputClass}
+                      value={toDatetimeLocalValue(s.createdAt)}
+                      onChange={(e) =>
+                        updateSlideLocal(s.id, {
+                          createdAt: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+                        })
+                      }
+                    />
+                  </label>
                   <label className={`text-xs ${mutedClass} block md:col-span-2`}>
                     Görsel URL
                     <input
@@ -437,9 +470,25 @@ export function AdminContentPage() {
                     />
                   </label>
                   <div className={`text-xs ${mutedClass} block md:col-span-2`}>
-                    <span className="block mb-1">Veya dosya yükle (hero banner oranında kırpılır)</span>
+                    <label className="flex items-center gap-2 text-sm mb-2">
+                      <input
+                        type="checkbox"
+                        checked={!!s.isSquareImage}
+                        onChange={(e) =>
+                          updateSlideLocal(s.id, {
+                            isSquareImage: e.target.checked,
+                            gradient: e.target.checked
+                              ? SQUARE_SLIDE_GRADIENT
+                              : 'from-blue-900 via-purple-900 to-pink-900',
+                          })
+                        }
+                      />
+                      Bu resimdir (400×400 kare görsel)
+                    </label>
+                    <span className="block mb-1">Veya dosya yükle (görsel olduğu gibi kaydedilir)</span>
                     <ImageUploadField
-                      target="slide"
+                      target={s.isSquareImage ? 'category' : 'slide'}
+                      directUpload
                       disabled={uploadingSlideId === s.id || savingSlideId === s.id}
                       uploading={uploadingSlideId === s.id}
                       onFileReady={(f) => uploadSlideImage(s.id, f)}
@@ -450,7 +499,9 @@ export function AdminContentPage() {
                       <img
                         src={resolveCmsPublicAssetUrl(s.imageUrl)}
                         alt="Slide preview"
-                        className={`w-full max-h-40 object-cover rounded border ${isDark ? 'border-gray-700' : 'border-slate-200'}`}
+                        className={`rounded border object-contain ${isDark ? 'border-gray-700' : 'border-slate-200'} ${
+                          s.isSquareImage ? 'w-[200px] h-[200px]' : 'w-full max-h-40 object-cover'
+                        }`}
                       />
                     </div>
                   ) : null}

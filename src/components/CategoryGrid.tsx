@@ -122,11 +122,11 @@ export function CategoryGrid({ categories, selectedCategory, onSelectCategory, b
                 src={resolveDirectoryIconForGrid(category.name, category.icon, markaPaths, brandName)}
                 fallback="📁"
               />
-              <h3 className="ilsa-home-title font-medium text-sm mb-1">
+              <h3 className="ilsa-home-title ilsa-folder-grid-name font-medium mb-1">
                 {category.name}
               </h3>
               {category.description && (
-                <p className="text-xs ilsa-home-muted line-clamp-2">
+                <p className="ilsa-folder-grid-meta ilsa-home-muted line-clamp-2">
                   {category.description}
                 </p>
               )}

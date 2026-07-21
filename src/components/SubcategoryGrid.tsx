@@ -160,7 +160,7 @@ export function SubcategoryGrid({
               {/* Name */}
               <h3
                 className={`
-                  mb-1 transition-colors text-center
+                  ilsa-folder-grid-name mb-1 transition-colors text-center font-medium
                   ${
                     selectedSubcategory === subcategory.id
                       ? 'text-white'
@@ -174,7 +174,7 @@ export function SubcategoryGrid({
               {/* File Count */}
               <p
                 className={`
-                  text-sm transition-colors text-center
+                  ilsa-folder-grid-meta transition-colors text-center
                   ${
                     selectedSubcategory === subcategory.id
                       ? 'text-white/90'
